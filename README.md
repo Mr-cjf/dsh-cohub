@@ -36,7 +36,13 @@ npm run build   # generate-skills.ts 生成 src/skills.ts → bun build → lib/
 ## 安装到 profile
 
 ```bash
-dsh plugin --profile web add <本目录>
+dsh plugin --profile web add dsh-cohub
+```
+
+本地开发安装：
+
+```bash
+dsh plugin --profile web add C:\Users\14023\Desktop\dsh-cohub
 ```
 
 或手动：profile 的 package.json
