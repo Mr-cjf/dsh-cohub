@@ -15,7 +15,9 @@ DeepSeek Harness 版 [oh-my-opencode-cohub](https://github.com/Mr-cjf/oh-my-open
 | ContextEngine 上下文提取 | subagent_fork 继承会话（删除） |
 | council_session 工具 | M4：workflow 并行 + provider/model 覆盖 |
 | TUI 面板 | DSH Web GUI 原生面板（删除） |
-| CLI 安装器 | dsh plugin add（删除） |
+| CLI 安装器 | dsh plugin add（转发 pnpm） |
+
+> 注：`dsh plugin add` 不是 CLI 独立子命令，而是把参数转发给 profile 目录内的 `pnpm`（`dsh plugin --profile <name> add <pkg>` ≡ 在该 profile 执行 `pnpm add <pkg>`），安装后自动把声明 `dsh.bundle` 的依赖加入 `dsh.profile.bundles`。
 
 ## 技能清单（12 个）
 
