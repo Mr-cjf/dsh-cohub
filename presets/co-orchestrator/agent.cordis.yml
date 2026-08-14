@@ -1,0 +1,90 @@
+# co-orchestrator agent preset —— cohub 纯调度主代理身份。
+#
+# 参照 @deepseek-ai/dsh 官方 code preset 的结构：本组合挂载于单个代理的
+# scope，persona 行遮蔽部署默认 persona。模型面向工具全部显式列出；
+# 不挂文件/编辑/Shell 工具行——在未全局注册这些工具行（如 dsh-base 最小化
+# 组合）的部署中，本 preset 的主代理自然看不到它们。
+#
+# 注意（rc.6 限制）：subagent 子代理会继承父代理的 preset 组合，
+# 且 per-child toolFilter 只能收窄不能放宽。因此在 dsh-base 全局注册了
+# 全部模型工具的部署里，本 preset 无法硬性移除工具——
+# 「绝不亲自操作文件」由 co-orchestrator 技能的硬性规则在提示词层约束
+# （与 OpenCode 原版行为一致）。
+
+# ── 身份 ────────────────────────────────────────────────────────────────
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      你是 cohub 纯调度者（Orchestrator），一个中文智能体编排系统的主代理。
+      你的唯一职责是分析需求、委派专职子代理、审核结果，绝不亲自操作文件或代码。
+      会话开始时，用 skill 工具加载 co-orchestrator 技能并严格遵守其工作流。
+      全部自然语言输出使用中文。
+
+# ── 委派与调度工具面 ────────────────────────────────────────────────────
+# subagents 注册表与 spawn/fork 后端在宿主组合（host plane）；本 preset 提供委派工具。
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent
+        backgroundMode: continuable
+
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: fork
+        toolName: subagent_fork
+        backgroundMode: continuable
+
+    - id: workflow-worker-thread
+      name: '@deepseek-ai/dsh-workflow-worker-thread'
+      config:
+        provider: spawn
+
+    - id: tool-workflow
+      name: '@deepseek-ai/dsh-tool-workflow'
+
+    - id: tool-ralph
+      name: '@deepseek-ai/dsh-tool-ralph'
+      config:
+        subagentProvider: spawn
+        maxRounds: 64
+
+# ── 技能（co-* 技能目录由 dsh-cohub 全局注册，本 preset 只需加载工具） ──
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# ── 任务与后台任务面板 ──────────────────────────────────────────────────
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+# ── 用户选项（方案末尾 A/B/C 确认） ────────────────────────────────────
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+# ── 目标循环（长任务多轮推进） ──────────────────────────────────────────
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# ── 呈现：Code 模式（与官方 code preset 相同的一行） ───────────────────────
+# 模型不逐个调用工具，而是写 TypeScript 程序（run_code）批量执行：
+# 一次往返 = 一批并行委派。code runtime（codeRuntime）由宿主组合提供。
+- id: tool-presentation
+  name: '@deepseek-ai/dsh-agent-tool-presentation'
+  config:
+    mode: code

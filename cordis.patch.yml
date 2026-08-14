@@ -1,0 +1,11 @@
+# dsh-cohub bundle patch —— 在 profile 组合中挂载 CoHub 插件行。
+# 行 id 为 "cohub"：profile 级 cordis.patch.yml 可用该 id 覆盖 config
+#（如关闭 council 或配置 councillors 模型列表）。
+- insert:
+    - id: cohub
+      name: 'dsh-cohub'
+      config:
+        # councillors 非空时注册 council_session 工具（多模型共识），示例：
+        #   - { name: expert1, provider: deepseek-official, model: deepseek-v4-flash }
+        councillors: []
+        councilTimeoutMs: 180000

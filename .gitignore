@@ -1,0 +1,9 @@
+# 构建产物
+lib/
+
+# 生成的 skills.ts（由 scripts/generate-skills.ts 生成）
+src/skills.ts
+
+# 本地测试 profile 与依赖
+.test/
+node_modules/
