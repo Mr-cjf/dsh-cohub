@@ -1,6 +1,6 @@
 {
   "name": "dsh-cohub",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Harness 版 CoHub：中文智能体编排——纯调度模式 / 12 专职代理技能 / 多模型共识",
   "type": "module",
   "main": "lib/index.js",

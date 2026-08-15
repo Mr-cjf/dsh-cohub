@@ -87,7 +87,11 @@ council_session 由配置了 councillors 的部署自动提供给模型；模型
 
 ## co-orchestrator agent preset（Phase 2）
 
-`presets/co-orchestrator/` 提供调度者主代理身份（persona + 调度工具面：subagent/fork/workflow/ralph/skill/todo/jobs/ask-user/goal）。安装：
+`presets/co-orchestrator/` 提供调度者主代理身份（persona + 调度工具面：subagent/fork/workflow/ralph/skill/todo/jobs/ask-user/goal）。
+
+**自动安装**：本包在 `apply` 时会把内置 preset 复制到 `~/.dsh/.agent-presets/co-orchestrator/`（幂等，不覆盖你已修改的同名 preset）。`dsh plugin --profile web add dsh-cohub` 装完重启后，即可在 GUI 的 agent preset 选择器中切换，无需手动操作。
+
+若 preset 未出现（例如本地源码开发、或想手动摆放），可兜底执行：
 
 ```bash
 mkdir -p ~/.dsh/.agent-presets/co-orchestrator
