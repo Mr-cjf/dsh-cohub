@@ -1,5 +1,5 @@
 // dsh-port/src/index.ts
-// CoHub DSH 插件行：中文指令注入 + 12 个专职代理技能 +（M4）多模型共识工具
+// CoHub DSH 插件行：中文指令注入 + 13 技能（12 专职代理 + orchestrator）+（M4）多模型共识工具
 // + 内置 agent preset（co-orchestrator）自动安装到用户 preset root。
 //
 // 插件行导出约定（cordis 组合行）：
@@ -15,6 +15,8 @@ import { dshHomePath } from "@deepseek-ai/dsh-home-paths";
 import { CHINESE_LANGUAGE_INSTRUCTION } from "./chinese";
 import { COHUB_SKILLS } from "./skills";
 import { createCouncilTool } from "./council";
+import { createDelegateTool } from "./delegate";
+import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 
 /** 单个 councillor 配置（M4 council 工具使用） */
 const Councillor = z.object({
@@ -24,8 +26,16 @@ const Councillor = z.object({
   prompt: z.string().default(undefined),
 });
 
+/** 单个 skill 的路由配置（delegate 工具使用） */
+const SkillRoute = z.object({
+  name: z.string(),
+  provider: z.string().default(undefined),
+  model: z.string().default(undefined),
+  maxTokens: z.number().default(undefined),
+});
+
 export const name = "cohub";
-export const inject = ["systemPrompt", "skills", "tools"];
+export const inject = ["systemPrompt", "skills", "tools", "sessionProjections", "llm"];
 
 export const Config = z.object({
   /** 多模型共识 councillors（M4：非空时注册 council_session 工具） */
@@ -34,6 +44,16 @@ export const Config = z.object({
   councilTimeoutMs: z.number().default(180_000),
   /** 子代理 provider（spawn 为内置进程内后端） */
   councilProvider: z.string().default("spawn"),
+  /** skill 路由表（delegate 工具）：按 skill 名覆盖 provider/model/maxTokens，缺省继承父模型 */
+  skills: z.array(SkillRoute).default([]),
+});
+
+/** cohub 的 settings namespace（settings.yaml 的 cohub.* 段） */
+const COHUB_NS = settingsNamespace("cohub");
+
+/** cohub settings namespace schema：skills 路由表（组合层 cordis.patch.yml 为默认值） */
+const CohubSettingsSchema = z.object({
+  skills: z.array(SkillRoute).default([]),
 });
 
 /** 本包内置的 agent preset 目录（随 files 字段打包进 npm 包） */
@@ -78,7 +98,7 @@ export function apply(ctx, config) {
     text: CHINESE_LANGUAGE_INSTRUCTION,
   }), "cohub.section()");
 
-  // ② 12 个专职代理 → runtime skills
+  // ② 13 技能（12 专职代理 + orchestrator）→ runtime skills
   //    主代理用 skill 工具按需加载，再通过 subagent 委派（DSH 原生），
   //    运行时技能目录中即出现 co-explorer / co-fixer / co-council 等条目。
   for (const skill of COHUB_SKILLS) {
@@ -88,7 +108,22 @@ export function apply(ctx, config) {
   // ③ 内置 agent preset（co-orchestrator）自动安装
   installAgentPresets(ctx.logger);
 
-  // ④ council_session 工具（M4）：配置了 councillors 时注册
+  // ④ delegate 工具（核心）：按 skill 名路由到配置的 provider/model 并委派专职代理
+  //    始终注册，不依赖 councillors 是否配置。路由表可由 DSH settings（settings.yaml 的
+  //    cohub.skills）覆盖，组合层（cordis.patch.yml 的 skills）作为 base；settings 未挂载时回落组合层。
+  const entry = { skills: config.skills ?? [] };
+  let currentSkills = () => entry.skills;
+  installSettingsSection(ctx, COHUB_NS, CohubSettingsSchema, entry, {
+    setSource: (src) => { currentSkills = () => src.skills; },
+    onChange: () => {},
+  });
+
+  if (!ctx.subagents) {
+    throw new Error("cohub: delegate tool requires the subagents service (@deepseek-ai/dsh-subagent)");
+  }
+  ctx.tools.register(createDelegateTool(ctx, currentSkills));
+
+  // ⑤ council_session 工具（M4）：配置了 councillors 时注册
   if ((config.councillors ?? []).length > 0) {
     if (!ctx.subagents) {
       throw new Error("cohub: council tool requires the subagents service (@deepseek-ai/dsh-subagent)");
@@ -102,4 +137,20 @@ export function apply(ctx, config) {
       ctx,
     ));
   }
+
+  // ⑥ tokenMeter：把「当前 agent 的系统提示 + 工具 schema」的 token 用量输出到诊断日志
+  //    监听 session/event 的 request/header 事件，读取 sessionProjections 的 contextBreakdown；
+  //    effect 返回 off，插件卸载时自动撤销监听。
+  ctx.effect(() => {
+    const off = ctx.on("session/event", (session, event) => {
+      if (event.type !== "request/header") return;
+      const snap = ctx.sessionProjections.snapshot(session);
+      const cb = snap.values.contextBreakdown;
+      if (cb) {
+        const total = cb.systemTokens + cb.toolsTokens + cb.messageTokens;
+        ctx.logger.info("[cohub token] session=" + session.id + " system=" + cb.systemTokens + " tools=" + cb.toolsTokens + " messages=" + cb.messageTokens + " total=" + total);
+      }
+    });
+    return off;
+  }, "cohub.tokenMeter()");
 }

@@ -16,10 +16,9 @@
   name: '@deepseek-ai/dsh-persona'
   config:
     text: >-
-      你是 cohub 纯调度者（Orchestrator），一个中文智能体编排系统的主代理。
-      你的唯一职责是分析需求、委派专职子代理、审核结果，绝不亲自操作文件或代码。
+      你是 cohub 中文智能体编排体系的主调度者集群（Orchestrator）——思考时以集群方式协作，调用不同代理集群分工处理，而非以独立个体独自完成。
+      你的唯一职责是分析需求 → 委派信息收集 → 委派 co-planner 制定方案 → 审核 → 委派执行 → 委派验证；绝不亲自调用任何文件/代码读写与执行工具（run_code 本身除外；其内部 node:fs 等文件系统 API 直连亦禁止），全部委派给专职子代理。
       会话开始时，用 skill 工具加载 co-orchestrator 技能并严格遵守其工作流。
-      全部自然语言输出使用中文。
 
 # ── 委派与调度工具面 ────────────────────────────────────────────────────
 # subagents 注册表与 spawn/fork 后端在宿主组合（host plane）；本 preset 提供委派工具。
@@ -29,23 +28,6 @@
   isolate:
     workflowEngine: true
   config:
-    - id: tool-subagent-control
-      name: '@deepseek-ai/dsh-tool-subagent-control'
-
-    - id: tool-subagent
-      name: '@deepseek-ai/dsh-tool-subagent'
-      config:
-        provider: spawn
-        toolName: subagent
-        backgroundMode: continuable
-
-    - id: tool-subagent-fork
-      name: '@deepseek-ai/dsh-tool-subagent'
-      config:
-        provider: fork
-        toolName: subagent_fork
-        backgroundMode: continuable
-
     - id: workflow-worker-thread
       name: '@deepseek-ai/dsh-workflow-worker-thread'
       config:
@@ -53,12 +35,6 @@
 
     - id: tool-workflow
       name: '@deepseek-ai/dsh-tool-workflow'
-
-    - id: tool-ralph
-      name: '@deepseek-ai/dsh-tool-ralph'
-      config:
-        subagentProvider: spawn
-        maxRounds: 64
 
 # ── 技能（co-* 技能目录由 dsh-cohub 全局注册，本 preset 只需加载工具） ──
 - id: tool-skill

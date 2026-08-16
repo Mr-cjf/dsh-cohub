@@ -14,18 +14,19 @@ interface SkillDef {
 }
 
 const SKILLS: SkillDef[] = [
-  { file: 'orchestrator', name: 'co-orchestrator', description: '纯调度——分析需求→委派→审核（禁止直接文件操作）' },
-  { file: 'oracle', name: 'co-oracle', description: '架构审查 / 代码审查 / YAGNI 简化 / 复杂调试（只读）' },
-  { file: 'explorer', name: 'co-explorer', description: '代码库搜索定位——grep / glob / AST（只读）' },
-  { file: 'librarian', name: 'co-librarian', description: '官方文档 / API / GitHub 研究（只读+Web）' },
-  { file: 'designer', name: 'co-designer', description: 'UI/UX 设计实现 / 视觉润色 / 响应式布局（读写）' },
-  { file: 'fixer', name: 'co-fixer', description: '代码修改 / 构建 / 测试执行（读写+Bash）' },
-  { file: 'observer', name: 'co-observer', description: '图片 / PDF / 截图视觉分析（只读）' },
-  { file: 'council', name: 'co-council', description: '多模型并行共识（不可逆决策用）' },
-  { file: 'rule-user', name: 'co-rule-user', description: '用户级 AGENTS.md 规范分析' },
-  { file: 'rule-project', name: 'co-rule-project', description: '项目 AGENTS.md 规范分析' },
-  { file: 'rule-app', name: 'co-rule-app', description: '应用级规则文件分析' },
-  { file: 'planner', name: 'co-planner', description: '方案制定——综合需求+信息+规范输出任务分解' },
+  { file: 'orchestrator', name: 'co-orchestrator', description: '调度编排：分析需求→委派→审核（不改文件）' },
+  { file: 'oracle', name: 'co-oracle', description: '架构/代码审查：YAGNI 简化·复杂调试（只读）' },
+  { file: 'explorer', name: 'co-explorer', description: '搜索方案制定：委派 co-tool 检索定位' },
+  { file: 'librarian', name: 'co-librarian', description: '资料研究：官方文档/API/GitHub（只读+Web）' },
+  { file: 'designer', name: 'co-designer', description: 'UI/UX 设计决策：委派 co-tool 执行读写' },
+  { file: 'fixer', name: 'co-fixer', description: '代码修改方案制定：委派 co-tool 执行读写/构建/测试' },
+  { file: 'observer', name: 'co-observer', description: '视觉分析：图片/PDF/截图识别（只读）' },
+  { file: 'council', name: 'co-council', description: '多模型共识：并行评审不可逆决策' },
+  { file: 'rule-user', name: 'co-rule-user', description: '规则分析：用户级 AGENTS.md 规范' },
+  { file: 'rule-project', name: 'co-rule-project', description: '规则分析：项目级 AGENTS.md 规范' },
+  { file: 'rule-app', name: 'co-rule-app', description: '规则分析：应用级规则文件规范' },
+  { file: 'planner', name: 'co-planner', description: '方案制定：综合需求+信息+规范→任务分解' },
+  { file: 'tool', name: 'co-tool', description: '工具执行：文件读写/搜索/命令运行（唯一持有工具）' },
 ];
 
 const entries: string[] = [];
