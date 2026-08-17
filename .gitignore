@@ -10,3 +10,6 @@ node_modules/
 
 # dsh 会话导出/分析产物
 analysis/
+
+# Playwright MCP 测试临时产物
+.playwright-mcp/

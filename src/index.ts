@@ -35,7 +35,7 @@ const SkillRoute = z.object({
 });
 
 export const name = "cohub";
-export const inject = ["systemPrompt", "skills", "tools", "sessionProjections", "llm"];
+export const inject = ["systemPrompt", "skills", "tools", "sessionProjections", "llm", "subagents"];
 
 export const Config = z.object({
   /** 多模型共识 councillors（M4：非空时注册 council_session 工具） */
