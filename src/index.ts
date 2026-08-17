@@ -34,6 +34,24 @@ const SkillRoute = z.object({
   maxTokens: z.number().default(undefined),
 });
 
+/** delegate 执行器环境契约注入配置（P1-1）：默认开、可关闭、文本可覆盖 */
+const EnvContractConfig = z.object({
+  /** 是否在 delegate spawn prompt 前注入执行器环境契约；默认开 */
+  enabled: z.boolean().default(true),
+  /** 部署覆盖文本；缺省 = 通用探测式默认文本（DEFAULT_ENV_CONTRACT，不写死环境断言） */
+  text: z.string().default(undefined),
+}).default({});
+
+/** delegate 中止/失败自动重试配置（P1-2）：默认不重试（maxRetries=0），保持现状 */
+const DelegateRetry = z.object({
+  /** 中止/可重试失败后的自动重试上限；0 = 不重试（保持现状） */
+  maxRetries: z.number().default(0),
+  /** 重试间隔（毫秒） */
+  retryDelayMs: z.number().default(1000),
+  /** 可自动重试的 stopReason 集合；默认仅 "aborted"；未知 reason 一律不重试（保守，跨版本安全） */
+  retryableReasons: z.array(z.string()).default(["aborted"]),
+}).default({});
+
 export const name = "cohub";
 export const inject = ["systemPrompt", "skills", "tools", "sessionProjections", "llm", "subagents"];
 
@@ -46,6 +64,10 @@ export const Config = z.object({
   councilProvider: z.string().default("spawn"),
   /** skill 路由表（delegate 工具）：按 skill 名覆盖 provider/model/maxTokens，缺省继承父模型 */
   skills: z.array(SkillRoute).default([]),
+  /** delegate 执行器环境契约注入（P1-1）：默认开，文本可覆盖 */
+  delegateEnvContract: EnvContractConfig,
+  /** delegate 中止/失败自动重试（P1-2）：默认不重试 */
+  delegateRetry: DelegateRetry,
 });
 
 /** cohub 的 settings namespace（settings.yaml 的 cohub.* 段） */
@@ -114,14 +136,17 @@ export function apply(ctx, config) {
   const entry = { skills: config.skills ?? [] };
   let currentSkills = () => entry.skills;
   installSettingsSection(ctx, COHUB_NS, CohubSettingsSchema, entry, {
-    setSource: (src) => { currentSkills = () => src.skills; },
+    setSource: (src) => { currentSkills = () => (src() ?? {}).skills ?? []; },
     onChange: () => {},
   });
 
   if (!ctx.subagents) {
     throw new Error("cohub: delegate tool requires the subagents service (@deepseek-ai/dsh-subagent)");
   }
-  ctx.tools.register(createDelegateTool(ctx, currentSkills));
+  ctx.tools.register(createDelegateTool(ctx, () => currentSkills(), {
+    delegateEnvContract: config.delegateEnvContract,
+    delegateRetry: config.delegateRetry,
+  }));
 
   // ⑤ council_session 工具（M4）：配置了 councillors 时注册
   if ((config.councillors ?? []).length > 0) {

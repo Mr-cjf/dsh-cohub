@@ -99,20 +99,13 @@ function contentText(output: unknown): string {
 export function createCouncilTool(config: CouncilRuntimeConfig, ctx: any) {
   return defineTool({
     name: "council_session",
-    description: [
-      "Launch a multi-LLM council session for consensus-based analysis.",
-      "",
-      "Sends the prompt to multiple models (councillors) in parallel and returns",
-      "their formatted responses for you to synthesize.",
-      "",
-      "Returns the councillor responses with a synthesis-process footer.",
-    ].join("\n"),
+    description: "启动多模型共识会议：把同一 prompt 并行发送给所有 councillor 模型，返回带综合流程指引的格式化回复，供你逐一审查并综合。",
 
     parameters: {
       prompt: {
         type: "string",
         required: true,
-        description: "The prompt to send to all councillors.",
+        description: "发送给所有 councillor 的提示。",
       },
     },
 

@@ -15,3 +15,13 @@
         #   - { name: co-fixer, provider: deepseek-official, model: deepseek-v4-flash }
         #   - { name: co-explorer, provider: deepseek-official, model: deepseek-v4-flash }
         skills: []
+        # delegateEnvContract: delegate 委派时是否在子代理 prompt 前注入「执行器环境契约」
+        # （通用原则 + 探测式自适应，避免子代理在陌生执行环境现场盲试）。默认开；可关闭/可覆盖文本：
+        #   delegateEnvContract: { enabled: true }                    # 默认
+        #   delegateEnvContract: { enabled: false }                   # 关闭注入
+        #   delegateEnvContract: { enabled: true, text: "..." }       # 部署覆盖为已知环境契约
+        # 缺省文本为「通用原则 + 探测流程」（不写死 await import()/require/600s 等环境断言）。
+        # delegateRetry: delegate 中止/失败后的自动重试。默认不重试（保持现状）：
+        #   delegateRetry: { maxRetries: 0, retryDelayMs: 1000, retryableReasons: ["aborted"] }
+        #   - maxRetries: 0 = 不重试；>0 时仅对 retryableReasons 中的 reason 重试
+        #   - retryableReasons: 默认仅 "aborted"；未知 stopReason 一律不重试（保守，跨版本安全）

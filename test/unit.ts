@@ -3,11 +3,13 @@
 import { Context } from "@deepseek-ai/cordis";
 import systemPrompt from "@deepseek-ai/dsh-system-prompt";
 import skills from "@deepseek-ai/dsh-skill";
+import tools from "@deepseek-ai/dsh-tools";
 import subagents from "@deepseek-ai/dsh-subagent";
 import * as cohub from "../lib/index.js";
 
 const root = new Context();
 root.plugin(systemPrompt);
+root.plugin(tools);
 root.plugin(skills);
 root.plugin(subagents);
 await new Promise(r => setImmediate(r)); // cordis 插件挂载为异步微任务，需一个 tick
@@ -41,6 +43,42 @@ for (const { n, len, hasCn } of loaded) {
 }
 const okContent = loaded.every(x => x.len > 50 && x.hasCn);
 console.log('内容校验:', okContent ? 'PASS' : 'FAIL');
+
+// ③b brief 校验：12 个 skill 均有 brief 且含中文
+const { COHUB_SKILLS } = await import('../src/skills.ts');
+const okBrief = COHUB_SKILLS.length === 12 && COHUB_SKILLS.every((s: any) => !!s.brief?.trim() && /[\u4e00-\u9fff]/.test(s.brief));
+for (const s of COHUB_SKILLS) {
+  console.log(`  brief ${s.name}: ${s.brief?.length ?? 0} 字, 含中文=${/[\u4e00-\u9fff]/.test(s.brief ?? '')}`);
+}
+console.log('brief 校验:', okBrief ? 'PASS' : 'FAIL');
+
+// ③c delegate 注入 brief：委派 co-fixer 应注入 fixer.brief 而非完整 content
+const { createDelegateTool } = await import('../src/delegate.ts');
+const fixer = COHUB_SKILLS.find((s: any) => s.name === 'co-fixer')!;
+let capturedPrompt = '';
+const fakeCtx = {
+  llm: { listProviders: () => [] },
+  logger: { warn: () => {} },
+  subagents: {
+    start: (_transport: string, req: any) => {
+      capturedPrompt = req.prompt[0].text;
+      return {
+        result: Promise.resolve({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' }),
+        dispose() {},
+      };
+    },
+  },
+};
+const delegateTool = createDelegateTool(fakeCtx, () => []);
+await delegateTool.execute(
+  { skill: 'co-fixer', prompt: '请修改 src/foo.ts 的拼写错误' },
+  { agent: { id: 'parent' }, signal: new AbortController().signal },
+);
+const okDelegate = capturedPrompt.includes(fixer.brief)
+  && capturedPrompt.includes('--- 你的具体任务 ---')
+  && capturedPrompt.includes('请修改 src/foo.ts 的拼写错误')
+  && !capturedPrompt.includes('破坏性或大范围的 shell 操作前');
+console.log('delegate 注入 brief:', okDelegate ? 'PASS' : 'FAIL');
 
 // ============ M4：council 工具 ============
 console.log('');
@@ -103,7 +141,7 @@ const okAgg = String(out).includes('**expert1** (m1):')
 console.log('聚合输出:', okAgg ? 'PASS' : 'FAIL');
 console.log('输出预览:', String(out).split('\n').slice(0, 6).join(' / '));
 
-const allOk = okSkills && okContent && okRouting && okAgg;
+const allOk = okSkills && okContent && okBrief && okDelegate && okRouting && okAgg;
 console.log('');
 console.log(allOk ? '✅ 全部 PASS' : '❌ 存在 FAIL');
 process.exit(allOk ? 0 : 1);
