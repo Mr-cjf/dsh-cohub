@@ -6,17 +6,19 @@
 ## 2. 极简模式是什么
 - 定义：仅 2 个工具（持久 bash + str_replace_editor）+ 固定一句话 persona（"You are a helpful software engineer assistant."）+ 无上下文压缩 + 不注入运行时上下文快照。
 - 官方公开口径：用于在最小环境里基准测试模型（benchmarking models in a minimal environment）。
-- 官方内部定位（Agent Notes）：minimal preset 是「与 Claude SWE 兼容的 RL agent」的完整组合——"the sole Web owner of the RL agent composition"。
+- 官方内部定位（Agent Notes）：minimal preset 是「与 Claude SWE 兼容的 RL agent」的完整组合——官方原句 "The shipped Web `minimal` preset is the sole Web owner of the RL agent composition" / "owns the complete RL agent composition"（完整拥有 RL agent 组合，而非仅占其一）。
+- 对照（standard 预设）：约 25–26 个模型可见工具（平台相关：bash/pwsh 二选一、read_image 视 attachments 挂载、subagent_codex/subagent_claude_code 默认禁用），常驻约 15 段系统提示词。
 
 ## 3. 为什么强（四项机制 + 边界）
 1. RL 分布匹配（最根本）：模型很可能在双工具动作空间上做 RL 训练/偏好对齐；极简模式让推理分布 ≈ 训练分布。官方原文出现 "action space" 与 "match the intended training runtime"。
 2. 认知负荷收窄：工具多 → 每步多一层"选工具"决策 + token 开销 + 出错面；收敛到双工具后选择退化为几乎无成本的二分（跑环境 bash / 改文件 editor），推理预算回笼主链路。
-3. 系统提示词纯度：complete:true 移除所有其它系统提示 token（官方 persona README：complete mode removes every other system-prompt token；KV Cache 前缀稳定）。指令遵循是基准性能第一驱动力。
+3. 系统提示词纯度：complete:true 移除所有其它系统提示 token（官方 persona README：complete mode removes every other system-prompt token）。指令遵循是基准性能第一驱动力。边界：complete:true 只收敛系统提示词段，不删除工具 schema；minimal 只有 2 个工具来自预设只挂 2 个工具行。KV Cache 前缀稳定仅属成本/延迟收益，不作为能力提升论据。
 4. 元能力诱惑归零：subagent/workflow/plan/goal 的工具描述本身是软指令，会诱导"为了用而用"；物理移除 = 能力限制即正则化。
 - 最小完备集：bash（持久）= 图灵完备的通用执行器；str_replace_editor = 精确可验证的写入器（不匹配即报错）。两者覆盖"观察执行"与"可控变更"两条不可约能力轴。
-- "不会 let me"：元叙述消失 = 决策负担下降的行为指纹（用户观察，公开资料中暂无对应讨论）。
+- "不会 let me"：元叙述消失 = 决策负担下降的行为指纹（社区/用户观测，机制自洽，因果未证实；公开资料中暂无对应讨论）。
 - 应对决策（消除「let me 独自做」的个体叙述）：已将 Orchestrator persona 第 1 句改为「主调度者集群」集体身份——「你是 cohub 中文智能体编排体系的主调度者集群（Orchestrator）——思考时以集群方式协作，调用不同代理集群分工处理，而非以独立个体独自完成」；这是把自我认知从「独立个体」锚定为「集群」，让模型以团队分工思维替代个体独行叙述。
 - 边界（反噬场景）：长任务（无压缩→上下文溢出）、多文件大重构（无 plan 脚手架）、检索/联网/视觉、并行扇出、强安全约束。
+- 压缩版本更正（M7，重要）：rc.6 与当前 master 的 shipped minimal 预设都无压缩（头注释均为 "Context compaction is absent"）；提交 86d5dd4 当时的 Agent Note 决策段确曾写 "an entry-local compaction backend"，但当前 master 的 Agent Note 已修正为 "the current preset mounts an entry-local fs-local provider and no compaction backend"；RL 压缩策略参数属于 RL 训练 harness 侧，未随附到 shipped minimal。此前"master 有 RL 压缩后端、与 rc.6 存在版本差异"是误读。
 
 ## 4. 移植到 cohub 的原则
 - 不能照搬双工具：cohub 是多工具编排器，subagent/subagent_fork/workflow 是"纯调度"的核心能力面。
@@ -72,11 +74,21 @@ cohub:
   - 2026-07-29-persistent-bash-str-replace-editor.md
   - 2026-08-10-default-presets-single-editor.md
 - 官方 persona 机制：packages/preset/persona/README.md（complete mode + KV Cache 前缀稳定）
-- 官方站：https://www.deepseek.com/harness/en/
+- 官方站：https://www.deepseek.com/harness/en/（"Minimal mode keeps only a shell tool and a file editor for benchmarking models in a minimal environment."）
+- 官方 API 公告：https://api-docs.deepseek.com/zh-cn/news/news260813/（"对于公开基准测试集中的 Code Agent 任务，DeepSeek-V4-Pro-0813 使用 DeepSeek Harness 极简模式作为框架进行测试（使用 max 档位，topp=0.95，temperature=1.0），其他框架下结果可能略有不同。"）
 - 社区：dev.to "DeepSeek Harness Is Open Source: Everything Is a Plugin"；Hacker News 294 评论帖（作者在场但未正面回答"RL 与推理是否同一 harness"）
-- Anthropic 工程博客：multi-agent-research-system（工具设计"质量>数量"）
+- Anthropic 工程博客：multi-agent-research-system（工具设计"质量>数量"："Tool design and selection are critical... each tool needs a distinct purpose and a clear description"；"most coding tasks involve fewer truly parallelizable tasks than research, and LLM agents are not yet great at coordinating and delegating to other agents in real time"）
 
 ## 9. 待办 / 未决
 - "DSec 沙箱 agent 在 RL 期间用 minimal mode" 系社区粉丝号声称，未经官方确认。
 - "不会 let me" 现象无公开讨论，属用户观察，机制上自洽（决策负担下降）。
 - 物理隔离（推理型代理无 node:fs、co-tool 有）为 DSH 层限制，需改 DSH 源码才能实现，属独立大需求（当前未做）。
+- 压缩版本差异：此前"master 有 RL 压缩后端、与 rc.6 存在版本差异"为误读；rc.6 与当前 master 的 shipped minimal 均无压缩（详见第 3 节 M7 更正）。
+
+## 10. 2026-08-17：三项优化落地（M2/M4/M3+M6）
+- ① 提示词卫生（M2）：delegate 工具描述一句化；council_session 英文多行描述改为一句中文；orchestrator.md 三处"完整指令由 delegate 自动拼接"改为"精简指令由 delegate 自动注入"。
+- ② 委派上下文最小化（M4）：12 技能各新增手写中文 brief（≤300 字，含角色/关键约束/输出契约/语言要求）；scripts/generate-skills.ts 生成 brief 字段并加契约校验（缺中文即失败、>300 字告警）；src/delegate.ts 改为注入 brief（缺失回退 content 并 logger.warn）；persona 更新为"严格遵循角色定义、关键约束、输出格式与工具指令"。
+- ③ 工具面纪律（M3/M6）：工具面审计结论（delegate + council_session 条件注册 + preset 调度工具面无低频/重叠需删项；workflow 与 run_code 的局部重叠为产品语义差异，保守保留）；orchestrator.md 新增"规则 4：新增能力前先问——三问不过不新增"+ 自检清单新增"是否提议新增能力"条目。
+- 测试：修复 test/unit.ts 基线（补挂 @deepseek-ai/dsh-tools 修复 ctx.tools undefined）+ 新增 brief 校验与 delegate 注入 brief 断言。
+- 验证：npm run build + node test/unit.ts + node test/delegate-p1.ts 全部通过。
+- 备注：本次改动与并发 P1（delegate 执行器环境契约注入 + 中止/失败自动重试，见 src/env-contract.ts、test/delegate-p1.ts）叠加于同一工作树，已共存验证；物理隔离（推理型代理无 node:fs）仍属 DSH 源码层待办。
