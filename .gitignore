@@ -10,3 +10,4 @@ node_modules/
 
 # dsh 会话导出/分析产物
 analysis/
+package-lock.json
