@@ -129,7 +129,7 @@ export function createCouncilTool(config: CouncilRuntimeConfig, ctx: any) {
 
       const councillors = config.councillors ?? [];
       if (councillors.length === 0) {
-        throw new Error("council_session: no councillors configured (set councillors on the cohub row in cordis.patch.yml)");
+        throw new Error("council_session: no councillors configured (set councillors on the cohub row in $DSH_HOME/cordis.patch.yml)");
       }
       const provider = config.councilProvider ?? "spawn";
       const timeoutMs = config.councilTimeoutMs ?? 180_000;
