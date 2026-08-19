@@ -1,6 +1,6 @@
 # dsh-cohub bundle patch —— 在 profile 组合中挂载 CoHub 插件行。
 # 行 id 为 "cohub"：profile 级 cordis.patch.yml 可用该 id 覆盖 config
-#（如关闭 council 或配置 councillors 模型列表）。
+#（如关闭 council 或配置 councillors 模型列表、调整 P3 字段）。
 - insert:
     - id: cohub
       name: 'dsh-cohub'
@@ -25,3 +25,31 @@
         #   delegateRetry: { maxRetries: 0, retryDelayMs: 1000, retryableReasons: ["aborted"] }
         #   - maxRetries: 0 = 不重试；>0 时仅对 retryableReasons 中的 reason 重试
         #   - retryableReasons: 默认仅 "aborted"；未知 stopReason 一律不重试（保守，跨版本安全）
+        # delegateRetry.stall（P3-1 N2 停滞检测）：默认关闭（enabled=false）。启用后会在 spawn 子代理
+        # 时挂载 StallWatchdog，按 session/event 在线估计 S1-S4 信号并提前中止（复用 delegateRetry 重试预算）：
+        #   delegateRetry:
+        #     maxRetries: 2
+        #     retryDelayMs: 1500
+        #     retryableReasons: ["aborted"]
+        #     stall:
+        #       enabled: true
+        #       consecutiveErrors: 3      # S1 连续同类错误阈值
+        #       idleMs: 180000            # S2 无结果空转毫秒
+        #       reasoningWithoutAction: 50 # S3 纯推理无动作阈值（连续推理块数，期间 0 工具调用）
+        #       loopCount: 3              # S4 同工具名 + 同参数重复次数
+        #       graceMs: 30000            # 宽限窗口（最近一次成功工具结果距今超过它才允许触发）
+        #       recoverable: true         # 触发后按 retryableReasons 判定（false 则直接失败）
+        # envSignatures（P3-2 N1 环境契约持久化）：默认 auto（无缓存时与 P1 行为完全一致）。
+        # 累计同一归一化签名达 confirmCount 次后写入 dshHomePath("cohub","env-signatures.json")；
+        # 下次 spawn 命中缓存（指纹 + TTL 有效）→ 用确定性契约文本前馈注入，跳过探针。
+        #   envSignatures:
+        #     use: auto                  # auto / off / manual
+        #     ttlMs: 604800000           # 7 天（到期重探，防环境静默升级）
+        #     confirmCount: 2            # 观察一致次数（防瞬态误判）
+        # schedule（P3-3 N3 调度参数）：通过 systemPrompt.section 注入实际生效值（cohub:schedule），
+        # 子代理与主代理均可见该段；text 为函数，settings 卡片改了立即重读无需重启。
+        #   schedule:
+        #     maxParallelBatch: 3        # 单批并行委派上限（本环境观测值，部署可调）
+        #     wallClockBudgetMs: 600000  # 单次执行单元墙钟预算（10 分钟）
+        #     useJobTracking: auto       # auto / on / off（auto = 有 job 能力则后台跟踪）
+        #     adaptiveBatch: auto        # auto / off（auto = 提示词级按本会话已观测错误/超时收放批大小）

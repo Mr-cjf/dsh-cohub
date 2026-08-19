@@ -92,3 +92,58 @@ cohub:
 - 测试：修复 test/unit.ts 基线（补挂 @deepseek-ai/dsh-tools 修复 ctx.tools undefined）+ 新增 brief 校验与 delegate 注入 brief 断言。
 - 验证：npm run build + node test/unit.ts + node test/delegate-p1.ts 全部通过。
 - 备注：本次改动与并发 P1（delegate 执行器环境契约注入 + 中止/失败自动重试，见 src/env-contract.ts、test/delegate-p1.ts）叠加于同一工作树，已共存验证；物理隔离（推理型代理无 node:fs）仍属 DSH 源码层待办。
+
+## 11. 2026-08-19：P3 三切片落地（N1 环境契约持久化 / N2 停滞检测 / N3 调度参数）
+
+### 11.1 目标
+为 `delegate` 工具在长时间 / 多批次 / 跨环境的真实部署里补工程化韧性。三切片的目标彼此独立但合并后形成完整的运行期调度层。
+
+### 11.2 P3-1 N2 停滞检测（src/delegate.ts StallWatchdog）
+- 决策：通过 `ctx.on("session/event")` 监听 session/event 全局事件总线，按 `run.id` 归属子代理事件。
+- 四类噪声信号：S1 连续同类错误 / S2 无结果空转（> idleMs 且仍在产出推理）/ S3 纯推理无动作（> reasoningWithoutAction 块，期间 0 工具调用）/ S4 重复调用循环（同工具名 + 归一化参数反复 + 结果错误）。
+- 触发条件组合：`S1 ∪ (S2 ∪ S3 ∪ S4)` **且**距最近一次成功工具结果超过 `graceMs`（最近成功过不触发）——防止误杀健康长任务。
+- 触发后 `ac.abort()` 提前中止，复用 `delegateRetry` 重试预算（`recoverable=true`）；`recoverable=false` 则直接失败不重试。
+- T3 父中止转发：通过内部 `AbortController` 把 `exec.signal` 转发到子代理；`start()` 在预中止抛错时归一为 `aborted` 走重试逻辑。
+- 降级：若 `ctx.on` 缺失（无事件源），自动降级关闭，看门狗完全不介入（维持现状，不会因缺事件源而崩）。
+- **默认关闭（enabled=false 保守）**——避免对未观测部署产生副作用；启用是 opt-in。
+- 错误结构化：`error.cause.stall = { signals: [...], diagnostics: "..." }`；重试 prompt 自动追加停滞诊断。
+
+### 11.3 P3-3 N3 调度参数（src/index.ts ScheduleConfig + systemPrompt 段）
+- 决策：把调度参数（批大小 / 墙钟预算 / job 跟踪 / 自适应批）从 skill 文档字面量提升为可配置事实，并通过 `ctx.systemPrompt.section({ name: "cohub:schedule", order: 96 })` 注入实际生效值。
+- **text 是函数**——每次 prompt 装配时动态读取当前 settings（`currentSettings().schedule`），改卡片立即生效，无需重启。
+- 缺省值仅作"本环境观测值"：缺省 `maxParallelBatch=3` / `wallClockBudgetMs=600000` 是当前部署观测值，部署可调；不写死任何环境事实（与 P1 环境契约决策一致）。
+- `useJobTracking`（auto/on/off）：`auto` = 有 job 能力则后台跟踪，无则前台逐批降级；不允许 force `--no-job` 类硬开关。
+- `adaptiveBatch`（auto/off）：`auto` = 提示词级按本会话已观测错误/超时收放批大小（**不在代码层调度**，避免过度优化）；`off` = 固定配置值。
+- 作用域：全局（子代理也可见）。文本必须极短、中性、无指令性——只报告部署参数。
+
+### 11.4 P3-2 N1 环境契约持久化（src/env-signatures.ts EnvSignatureLearner）
+- 决策：把"执行器环境契约"从每次 spawn 都探针 → 一次学习、持续使用，避免子代理每次进入新执行环境都盲试。
+- 缓存路径：`dshHomePath("cohub", "env-signatures.json")`——插件自管，不依赖 settings。
+- 优先级链（`pickEnvContractText`）：`delegateEnvContract.text`（P1 手工覆盖）> manual 的 `Config.contract`（静态指定）> 命中缓存（指纹一致 + TTL 内 + `confirmCount` 达标）> `DEFAULT_ENV_CONTRACT`（探针式）。
+- 三态：`auto`（缺省，无缓存时与 P1 行为完全一致；累计 ≥ confirmCount 次一致签名后写缓存）/ `off`（不读不写，每次都走 DEFAULT_ENV_CONTRACT）/ `manual`（只读 manual 配置，不读缓存、不学习）。
+- `confirmCount`（缺省 2）：同一归一化签名（`err:<msg>#`）连续确认后才写入，防瞬态误判。
+- TTL（缺省 7 天）：到期重探，防环境静默升级（Node / OS / DSH 升级后旧契约误导）。
+- 指纹 `envFingerprint()`：环境变了自动回退探针式，不依赖具体环境枚举。
+- **容错**：读 / 写失败静默降级（行为同无缓存），不劣化。
+
+### 11.5 测试覆盖（test/stall-p3.ts / schedule-p3.ts / env-sig-p3.ts）
+- stall-p3：12 用例覆盖默认关闭 / S1-S4 触发 / 宽限窗口 / `recoverable=false` / T3 父中止 / 无事件源降级 → 35 PASS / 0 FAIL
+- schedule-p3：缺省 / 非法 / 优先级 / 运行时解析 / N2 stall 子配置也生效 → 24 PASS / 0 FAIL
+- env-sig-p3：缓存命中 / 指纹变化 / TTL 过期 / manual 覆盖 / use=off / confirmCount / 纯函数 `render` / `classify` / `pick` → 50 PASS / 0 FAIL
+- 合并 P1 单测（delegate-p1.ts 28 PASS）+ unit.ts 基线，合计 137 PASS / 0 FAIL。
+
+### 11.6 客户端 settings 卡片补 UI（src/client/index.js A 阶段，commit cb497e2）
+- 此前 `CohubSettingsCard` 只暴露 `batchSize / wallClockBudgetMs / maxRetries` 三个控件，P3 schema 已声明的 12 个新字段全部无法在 GUI 配置。
+- 补 4 个 useState（scheduleDraft 扩 useJobTracking/adaptiveBatch；retryDraft 扩 retryDelayMs/retryableReasons；新增 stallDraft 7 字段；新增 envSigDraft 3 字段）+ 4 个 touched + 2 个 update 函数（`updateStall` / `updateEnvSig`，通用形式）。
+- 渲染层：schedule 区块补 Job 跟踪 / 批间自适应两个 select；新增 retry 区块（maxRetries + retryDelayMs + retryableReasons 逗号分隔输入 + hint）；新增 stall 区块（enabled 复选框 + 5 个 number inputs + recoverable 复选框，未启用时数字输入框与 recoverable 全部 disabled）；新增 envSig 区块（use select + ttlMs + confirmCount）。
+- i18n 同步补 zh/en（25 keys × 2）。
+- `discard` / `save` / `useEffect` 三处同步重置与提交；`save` 内 stall 子配置与 `delegateRetry` 合并提交，envSignatures 单独提交。
+- 实测：DSH 设置 → 插件 → "CoHub 代理模型" 卡片渲染完整 12 个新控件；console 0 错误；批大小默认 30（注意：当前部署 settings 已被某次 patch 改过，缺省 3 由 code 兜底覆盖）。
+
+### 11.7 文档与 patch 同步（cordis.patch.yml 注释块 + README 重写）
+- `cordis.patch.yml` 注释块从 P1 扩到 P3 全字段：每个新字段都有"默认值 / 含义 / 部署覆盖示例"三段式注释。
+- README 重写：项目名 `dsh-cohub`（不是 `dsh-port`）；构建描述补 `build-client`；配置示例补 P3 三组完整 YAML；新增「settings 卡片」「环境契约持久化」「停滞检测」「会话审计」四节；目录结构补 `src/client/` / `scripts/{build-client.js,audit-session.mjs}` / `test/*-p3.ts`；测试基线补 5 个 test 命令。
+
+### 11.8 备注
+- 本次 P3 三切片（src/delegate.ts +429 行 / src/index.ts +126 行 / src/env-signatures.ts 新文件 / test/*-p3.ts）+ 客户端 UI（src/client/index.js 新增 847 行）+ cordis.patch.yml 注释 + README 重写，叠加于同一工作树，已共存验证（测试 137 PASS、DSH 浏览器实测 0 错误）。
+- 物理隔离（推理型代理无 node:fs）仍属 DSH 源码层待办，本次未动。
