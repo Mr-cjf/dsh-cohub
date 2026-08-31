@@ -187,28 +187,28 @@ window.__ModuleLoader__.load({
           var modelsByProvider = {};
           try {
             var responses = await Promise.all([
-              api.llm.providers({}),
-              api.llm.models({})
+              api.llm.listConfigurableProviders(),
+              api.session.modelCatalog()
             ]);
             var providersResponse = responses[0];
             var modelsResponse = responses[1];
-            if (!providersResponse || !providersResponse.result || !providersResponse.result.ok) {
-              throw new Error(providersResponse && providersResponse.result && providersResponse.result.error ? providersResponse.result.error.message : "llm.providers failed");
+            if (!providersResponse || !providersResponse.ok) {
+              throw new Error(providersResponse && providersResponse.error ? providersResponse.error.message : "llm.listConfigurableProviders failed");
             }
-            if (!modelsResponse || !modelsResponse.result || !modelsResponse.result.ok) {
-              throw new Error(modelsResponse && modelsResponse.result && modelsResponse.result.error ? modelsResponse.result.error.message : "llm.models failed");
+            if (!modelsResponse || !modelsResponse.ok) {
+              throw new Error(modelsResponse && modelsResponse.error ? modelsResponse.error.message : "session.modelCatalog failed");
             }
-            var configurable = providersResponse.result.value.providers || [];
+            var configurable = providersResponse.value || [];
             for (var i = 0; i < configurable.length; i += 1) {
               var item = configurable[i];
-              if (item.active === false) continue;
+              if (item.declared === false) continue;
               providers.push({
                 id: item.provider,
                 label: item.displayName && item.displayName !== item.provider ? item.displayName + " (" + item.provider + ")" : item.provider,
-                active: item.active
+                active: item.declared !== false
               });
             }
-            var groups = modelsResponse.result.value.groups || [];
+            var groups = (modelsResponse.value && modelsResponse.value.groups) || [];
             for (var j = 0; j < groups.length; j += 1) {
               var group = groups[j];
               if (!group || typeof group.id !== "string") continue;
