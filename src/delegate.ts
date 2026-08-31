@@ -352,8 +352,8 @@ export function createDelegateTool(ctx: any, getRoutes: SkillRouteSource, config
     parameters: {
       skill: {
         type: "string",
-        required: true,
-        description: "专职代理技能名，如 co-fixer/co-explorer/co-oracle",
+        required: false,
+        description: "专职代理技能名，如 co-fixer/co-explorer/co-oracle。缺省时默认 co-fixer",
       },
       prompt: {
         type: "string",
@@ -381,9 +381,15 @@ export function createDelegateTool(ctx: any, getRoutes: SkillRouteSource, config
         + " jobTracking=" + (schedule?.useJobTracking ?? "auto")
         + " adaptiveBatch=" + (schedule?.adaptiveBatch ?? "auto"));
 
-      // ① 按 skill 名精确匹配技能
-      const skill = COHUB_SKILLS.find(s => s.name === args.skill);
-      if (!skill) throw new Error('delegate: unknown skill "' + args.skill + '"');
+      // ① 按 skill 名精确匹配技能；缺失或未知时兜底 co-fixer
+      const requestedSkill = args.skill || "co-fixer";
+      let skill = COHUB_SKILLS.find(s => s.name === requestedSkill);
+      if (!skill) {
+        ctx.logger?.warn?.('delegate: unknown skill "' + requestedSkill + '", falling back to co-fixer');
+        skill = COHUB_SKILLS.find(s => s.name === "co-fixer")!;
+      } else if (!args.skill) {
+        ctx.logger?.info?.('delegate: skill not specified, defaulting to co-fixer');
+      }
 
       // ② 查找该 skill 的路由配置（找不到则继承父模型）
       const route = (getRoutes() ?? []).find(s => s.name === args.skill);
