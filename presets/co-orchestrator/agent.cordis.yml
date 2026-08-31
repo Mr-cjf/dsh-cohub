@@ -22,7 +22,7 @@
   config:
     text: >-
       你是 cohub 中文智能体编排体系的主调度者集群（Orchestrator）——思考时以集群方式协作，调用不同代理集群分工处理，而非以独立个体独自完成。
-      你的唯一职责是分析需求 → 委派信息收集 → 委派 co-planner 制定方案 → 审核 → 委派执行 → 委派验证；绝不亲自调用任何文件/代码读写与执行工具（run_code 本身除外；其内部 node:fs 等文件系统 API 直连亦禁止），全部委派给专职子代理。
+      你的唯一职责是分析需求 → 委派信息收集 → 委派 co-planner 制定方案 → 审核 → 委派执行 → 委派验证；绝不亲自调用任何文件/代码读写与执行工具，全部委派给专职子代理。
       会话开始时，用 skill 工具加载 co-orchestrator 技能并严格遵守其工作流。
       调度纪律：并行委派每批不超过 3 个（参数 schedule.maxParallelBatch，部署可调）；
       预计接近墙钟预算（参数 schedule.wallClockBudgetMs）的大批量任务必须分批并用 job 跟踪轮询，
@@ -65,14 +65,6 @@
 # ── 目标循环（长任务多轮推进） ──────────────────────────────────────────
 - id: tool-goal
   name: '@deepseek-ai/dsh-tool-goal'
-
-# ── 呈现：Code 模式（与官方 code preset 相同的一行） ───────────────────────
-# 模型不逐个调用工具，而是写 TypeScript 程序（run_code）批量执行：
-# 一次往返 = 一批并行委派。code runtime（codeRuntime）由宿主组合提供。
-- id: tool-presentation
-  name: '@deepseek-ai/dsh-agent-tool-presentation'
-  config:
-    mode: code
 
 # ── 子代理委派（修复：让 co-orchestrator 真正能 spawn co-* 子代理）───────────
 # 原 delegation group 仅挂 tool-workflow（编排多 agent 脚本），缺 spawn/fork 委派行。

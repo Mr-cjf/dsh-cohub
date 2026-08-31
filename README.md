@@ -208,8 +208,8 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 
 | 维度 | co-orchestrator | cohub-standard |
 |---|---|---|
-| 工具模式 | Code 模式（run_code SDK 包） | 标准模式（直接调工具） |
-| fs/shell/web | restrict 收口（主代理看不见） | 直接挂载 |
+| 工具模式 | Native 模式（不挂载 fs/shell/web + persona 软约束） | 标准模式（直接调工具） |
+| fs/shell/web | 不挂载（persona 软约束） | 直接挂载 |
 | 委派工具面 | delegate + subagent + ralph + workflow | delegate + subagent + ralph + workflow |
 | 适用场景 | 长链调度 / 多模型共识 / 严格自律 | 直接动手 + 调度混合 |
 | 调度纪律 | persona 软约束（不可破） | persona 软约束（可自主决定何时自取何时委派） |
