@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     var React = require("react");
 
     var NS = "cohub";
-    var inject = ["slots", "locale", "connection", "remote", "settingsScope"];
+    var inject = ["slots", "locale", "remote", "settingsScope"];
 
     var SKILL_ROWS = [
       { name: "co-orchestrator", label: "调度编排" },
@@ -821,21 +821,22 @@ window.__ModuleLoader__.load({
         return ctx.locale.register(NS, { zh: zh, en: en });
       }, "cohub: settings dictionaries");
 
-      var connection = ctx.get("connection");
       var scope = ctx.settingsScope.bind({ namespace: NS });
-      var api = connection.api;
       var remote = ctx.remote;
 
+      // alpha.2 后 settings.plugin.item slot 改成 keyed 类型（key = settings namespace）；
+      // 按 .agents/notes/implemented/architecture/2026-08-12-plugin-owned-settings-surface.md，
+      // 用 key/locale 注册，不再声明 id/order，也不需要 slots.inject 第三参数。
       ctx.slots.inject("settings.plugin.item", function () {
         return ctx.slots.register({
           name: "settings.plugin.item",
-          id: "cohub",
-          order: 30,
+          key: NS,
+          locale: NS,
           inject: function () {
-            return { scope: scope, api: api, t: ctx.locale.bind(NS), remote: remote };
+            return { scope: scope, api: remote, t: ctx.locale.bind(NS), remote: remote };
           }
         }, CohubSettingsCard);
-      }, { key: "cohub" });
+      });
     }
 
     exports.apply = apply;
