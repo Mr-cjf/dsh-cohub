@@ -27,11 +27,9 @@ window.__ModuleLoader__.load({
 
     var zh = {
       title: "CoHub 代理模型",
-      description: "为每个专职代理单独指定模型供应商与模型；留空则继承父模型。",
+      description: "为每个专职代理单独指定模型供应商与模型。留空则继承父模型；配置失效时自动回退。",
       provider: "供应商",
       model: "模型",
-      inherit: "继承父模型",
-      inheritProvider: "继承供应商默认",
       configured: "显式配置",
       inherited: "继承父模型",
       loading: "加载中…",
@@ -75,15 +73,17 @@ window.__ModuleLoader__.load({
       envSigUseOff: "off（每次都探针）",
       envSigUseManual: "manual（只读 manual 配置）",
       envSigTtl: "缓存 TTL（毫秒）",
-      envSigConfirmCount: "确认次数（达到后写入）"
+      envSigConfirmCount: "确认次数（达到后写入）",
+      invalidCleared: "⚠️ 已检测到 {count} 个代理的配置失效，已自动重置为继承。",
+      invalidClearedList: "受影响代理：{list}",
+      providerPlaceholder: "选择供应商（留空则继承）",
+      modelPlaceholder: "选择模型（留空则用供应商默认）"
     };
     var en = {
       title: "CoHub Agent Models",
-      description: "Pick a provider and model for each specialist agent. Leave blank to inherit the parent model.",
+      description: "Pick a provider and model for each specialist agent. Leave blank to inherit the parent model; stale config auto-resets.",
       provider: "Provider",
       model: "Model",
-      inherit: "Inherit parent model",
-      inheritProvider: "Inherit provider default",
       configured: "Explicit",
       inherited: "Inherited",
       loading: "Loading…",
@@ -127,7 +127,11 @@ window.__ModuleLoader__.load({
       envSigUseOff: "off (probe every time)",
       envSigUseManual: "manual (read manual config only)",
       envSigTtl: "Cache TTL (ms)",
-      envSigConfirmCount: "Confirm count (write after threshold)"
+      envSigConfirmCount: "Confirm count (write after threshold)",
+      invalidCleared: "⚠️ Detected stale config for {count} agent(s); reset to inherit.",
+      invalidClearedList: "Affected agents: {list}",
+      providerPlaceholder: "Select provider (leave blank to inherit)",
+      modelPlaceholder: "Select model (leave blank for provider default)"
     };
 
     function emptyDraft() {
@@ -291,7 +295,9 @@ window.__ModuleLoader__.load({
         ".cohub-field-row{display:flex;flex-direction:column;gap:4px;margin-top:10px;}",
         ".cohub-stall-fields{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;}",
         ".cohub-envsig-fields{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;}",
-        ".cohub-checkbox-row{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;cursor:pointer;}"
+        ".cohub-checkbox-row{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;cursor:pointer;}",
+        ".cohub-notice{background:var(--dsw-alias-state-warning-bg,#fff8e1);color:var(--dsw-alias-state-warning-primary,#8d6e00);border:1px solid var(--dsw-alias-state-warning-border,#ffc107);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:13px;line-height:20px;}",
+        ".cohub-clear-btn{background:none;border:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-size:16px;line-height:1;padding:0 4px;margin-left:4px;}.cohub-clear-btn:hover{color:var(--dsw-alias-label-primary);}"
       ].join("\n");
       var tag = document.createElement("style");
       tag.dataset.plugin = "dsh-cohub";
@@ -320,6 +326,7 @@ window.__ModuleLoader__.load({
       var [saving, setSaving] = React.useState(false);
       var [saved, setSaved] = React.useState(false);
       var [error, setError] = React.useState("");
+      var [invalidNotice, setInvalidNotice] = React.useState(null);
 
       var [scheduleDraft, setScheduleDraft] = React.useState(function () {
         var s = snapshot.value && snapshot.value.schedule;
@@ -404,6 +411,53 @@ window.__ModuleLoader__.load({
           setEnvSigTouched(false);
         }
       }, [snapshot, dirty]);
+
+      var prevTopologyRef = React.useRef(topology.loading);
+      React.useEffect(function () {
+        var wasLoading = prevTopologyRef.current;
+        prevTopologyRef.current = topology.loading;
+        if (topology.loading) return;
+        if (!wasLoading) return;
+
+        var providerIds = new Set(topology.providers.map(function (p) { return p.id; }));
+        var cleared = [];
+        setDraft(function (prev) {
+          var next = {};
+          var changed = false;
+          for (var key in prev) {
+            var row = prev[key];
+            var newRow = { provider: row.provider, model: row.model, maxTokens: row.maxTokens };
+            if (row.provider && !providerIds.has(row.provider)) {
+              newRow.provider = "";
+              newRow.model = "";
+              changed = true;
+              cleared.push(key);
+            } else if (row.provider && row.model) {
+              var models = topology.modelsByProvider[row.provider] || [];
+              var modelIds = new Set(models.map(function (m) { return m.id; }));
+              if (!modelIds.has(row.model)) {
+                newRow.model = "";
+                changed = true;
+                cleared.push(key);
+              }
+            }
+            next[key] = newRow;
+          }
+          return changed ? next : prev;
+        });
+        if (cleared.length > 0) {
+          var skillLabels = cleared.map(function (name) {
+            var found = SKILL_ROWS.find(function (s) { return s.name === name; });
+            return found ? found.label : name;
+          });
+          setInvalidNotice(
+            t("invalidCleared").replace("{count}", String(cleared.length)) + " " +
+            t("invalidClearedList").replace("{list}", skillLabels.join("、"))
+          );
+          setDirty(true);
+          setSaved(false);
+        }
+      }, [topology.loading, topology.providers, topology.modelsByProvider]);
 
       var effectiveSkills = Array.isArray(snapshot.value && snapshot.value.skills) ? snapshot.value.skills : [];
       var baseNames = nameSet(snapshot.base && snapshot.base.skills);
@@ -630,16 +684,27 @@ window.__ModuleLoader__.load({
         var modelOptions = models.map(function (model) {
           return React.createElement("option", { key: model.id, value: model.id }, model.label);
         });
-        if (row.model && !models.some(function (model) { return model.id === row.model; })) {
-          modelOptions.unshift(React.createElement("option", { key: "__current", value: row.model }, row.model));
+        if (row.model && !models.some(function (m) { return m.id === row.model; })) {
+          modelOptions.unshift(
+            React.createElement("option", { key: "__current", value: row.model, disabled: true }, row.model + " (已失效)")
+          );
         }
-        var providerOptions = [
-          React.createElement("option", { key: "__inherit", value: "" }, t("inherit"))
-        ].concat(topology.providers.map(function (provider) {
-          return React.createElement("option", { key: provider.id, value: provider.id }, provider.label);
-        }));
-        if (row.provider && !topology.providers.some(function (provider) { return provider.id === row.provider; })) {
-          providerOptions.splice(1, 0, React.createElement("option", { key: "__current-provider", value: row.provider }, row.provider));
+        var providerOptions;
+        if (topology.loading) {
+          providerOptions = [React.createElement("option", { key: "__loading", value: "", disabled: true }, t("loading"))];
+        } else if (topology.error) {
+          providerOptions = [React.createElement("option", { key: "__error", value: "", disabled: true }, t("loadProvidersFailed"))];
+        } else if (topology.providers.length === 0) {
+          providerOptions = [React.createElement("option", { key: "__empty", value: "", disabled: true }, t("loadProvidersFailed"))];
+        } else {
+          providerOptions = topology.providers.map(function (provider) {
+            return React.createElement("option", { key: provider.id, value: provider.id }, provider.label);
+          });
+          if (row.provider && !topology.providers.some(function (p) { return p.id === row.provider; })) {
+            providerOptions.unshift(
+              React.createElement("option", { key: "__current-provider", value: row.provider, disabled: true }, row.provider + " (已失效)")
+            );
+          }
         }
 
         var modelControl;
@@ -657,10 +722,7 @@ window.__ModuleLoader__.load({
             value: row.model,
             disabled: !writable,
             onChange: function (event) { update(skill.name, "model", event.target.value); }
-          },
-            React.createElement("option", { value: "" }, t("inheritProvider")),
-            modelOptions
-          );
+          }, modelOptions);
         } else {
           modelControl = React.createElement("input", {
             className: "cohub-input",
@@ -688,11 +750,17 @@ window.__ModuleLoader__.load({
                 value: row.provider,
                 disabled: !writable,
                 onChange: function (event) { update(skill.name, "provider", event.target.value); }
-              }, providerOptions)
+              }, providerOptions),
+              row.provider && writable ?
+                React.createElement("button", { type: "button", className: "cohub-clear-btn", onClick: function () { update(skill.name, "provider", ""); update(skill.name, "model", ""); }, title: "清除" }, "\u00D7") :
+                null
             ),
             React.createElement("div", { className: "cohub-field" },
               React.createElement("label", { className: "cohub-label" }, t("model")),
-              modelControl
+              modelControl,
+              row.model && writable && row.provider ?
+                React.createElement("button", { type: "button", className: "cohub-clear-btn", onClick: function () { update(skill.name, "model", ""); }, title: "清除" }, "\u00D7") :
+                null
             )
           )
         );
@@ -702,6 +770,9 @@ window.__ModuleLoader__.load({
         React.createElement("h3", { className: "cohub-title" }, t("title")),
         React.createElement("p", { className: "cohub-desc" }, t("description")),
         topology.error ? React.createElement("p", { className: "cohub-status cohub-error" }, t("loadProvidersFailed") + ": " + topology.error) : null,
+        invalidNotice ? React.createElement("div", { className: "cohub-notice" },
+          React.createElement("span", null, invalidNotice)
+        ) : null,
         React.createElement("ul", { className: "cohub-rows" }, rows),
         React.createElement("div", { className: "cohub-schedule" },
           React.createElement("h4", { className: "cohub-subtitle" }, t("scheduleTitle")),
