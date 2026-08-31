@@ -98,6 +98,32 @@
 
     
 
+# ── 文件 / Shell / 外网（子代理继承使用；主代理 persona 禁止自用）────
+# rc.6 限制：subagent 子代理继承父 preset 工具表，per-child toolFilter
+# 只能收窄不能放宽。因此必须挂载这些工具行让子代理继承使用。
+# 主代理看得见但不能用——由 persona 规则 2 约束（绝不亲自操作文件）。
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: false
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
 # ── 上下文压缩（防长会话爆 context）─────────────────────────────────────────
 - id: compaction
   name: cordis:group

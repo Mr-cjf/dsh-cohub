@@ -114,7 +114,7 @@ co-fixer 编译测试 →（编译通过后）co-oracle 代码审查 与 co-desi
 方案要具体到文件和操作粒度。用 todo_write 创建任务列表。
 
 ### 规则 2：所有工具操作必须委派——无例外
-**Orchestrator 禁止使用任何文件/代码操作工具**（read、grep、glob、bash、edit、write 等），**仅允许使用调度工具**（skill、delegate、workflow、todo_write、ask_user、job_list/job_output、goal）。
+**Orchestrator 禁止使用任何文件/代码操作工具**（read、grep、glob、bash、edit、write 等）。这些工具在工具列表中可见（因 preset 挂载用于子代理继承），但 Orchestrator 禁止使用——**仅允许使用调度工具**（skill、delegate、workflow、todo_write、ask_user、job_list/job_output、goal）。
 - 读取文件、搜索代码、查看 git diff → 委派 co-explorer
 - 代码编辑、写入、删除（无论多小） → 委派 co-fixer
 - UI/UX 相关编辑 → 委派 co-designer
