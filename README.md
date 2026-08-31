@@ -196,7 +196,31 @@ mkdir -p ~/.dsh/.agent-presets/co-orchestrator
 cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 ```
 
-在 GUI 的 agent preset 选择器中切换。注意（rc.6 限制）：子代理继承父代理的 preset 组合且 toolFilter 只能收窄，因此 preset 不硬性移除文件工具——「绝不亲自操作文件」由 co-orchestrator 技能在提示词层约束（与 OpenCode 原版一致）。
+在 GUI 的 agent preset 选择器中切换。
+
+**v0.3.0 强化（rc.6 限制下的双层约束）**：子代理继承父 preset 工具表且 per-child toolFilter 只能收窄不能放宽，因此 co-orchestrator preset 必须挂载 fs/shell/web 工具行让子代理（co-explorer/co-fixer/co-librarian 等）继承使用——但这同时让主代理自己也能调。dsh-cohub 在 `apply()` 时通过监听 `agent/created` 事件，对 joined co-orchestrator preset 的主代理调 `tools.restrict({deny:[...]})`，把文件 / Shell / 外网类工具从主代理视图物理移除，强制只能走 delegate 委派。子代理不受影响（restrict 挂在 agent.ctx scope 内，仅作用于该 agent 自身视图）。「绝不亲自操作文件」最终由运行时 restrict（硬性）+ persona 提示词（软性）双重保障。
+
+## cohub-standard agent preset（Phase 4，v0.3.0 新增）
+
+`presets/cohub-standard/` 提供 **DSH 标准 preset 骨架 + cohub 中文身份** 的第二选择——给不需要「纯调度硬约束」、想直接动手 + 调度混合工作流的用户。
+
+**与 co-orchestrator 的关键差异**：
+
+| 维度 | co-orchestrator | cohub-standard |
+|---|---|---|
+| 工具模式 | Code 模式（run_code SDK 包） | 标准模式（直接调工具） |
+| fs/shell/web | restrict 收口（主代理看不见） | 直接挂载 |
+| 委派工具面 | delegate + subagent + ralph + workflow | delegate + subagent + ralph + workflow |
+| 适用场景 | 长链调度 / 多模型共识 / 严格自律 | 直接动手 + 调度混合 |
+| 调度纪律 | persona 软约束（不可破） | persona 软约束（可自主决定何时自取何时委派） |
+
+**共同点**：
+
+- 12 个 co-* 技能 + delegate 工具（host plane 注入，与 preset 解耦）
+- 中文 persona + 调度参数（cohub:language / cohub:schedule 段）
+- subagent / subagent_fork / ralph / workflow 完整调度工具面
+
+**自动安装**：与 co-orchestrator 同样在 `apply()` 时复制到 `~/.dsh/.agent-presets/cohub-standard/`。重启后 GUI 的 agent preset 选择器中即可切换。
 
 ## 测试
 
@@ -224,7 +248,8 @@ src/
   env-signatures.ts     P3-2 环境契约持久化（EnvSignatureLearner + 缓存）
   skills.ts             generate-skills.ts 生成物（禁止手编）
   client/index.js       settings 卡片（i18n + 12 个 P3 控件）
-presets/co-orchestrator/  内置 agent preset（Phase 2）
+presets/co-orchestrator/  内置 agent preset（Phase 2，纯调度模式 + 运行时 restrict 收口）
+presets/cohub-standard/   内置 agent preset（Phase 4，标准模式 + 中文身份，v0.3.0 新增）
 test/
   unit.ts               基础集成
   delegate-p1.ts        P1 环境契约注入 + 重试

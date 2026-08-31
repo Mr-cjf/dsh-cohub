@@ -1,0 +1,2 @@
+name: CoHub 标准调度者（cohub-standard）
+description: DSH 标准 preset + 中文 cohub 人设/调度纪律；不使用 Code 模式，模型直接调工具。保留 co-* 技能与 delegate 委派，由 dsh-cohub bundle 注入。
