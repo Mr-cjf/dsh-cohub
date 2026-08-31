@@ -1,28 +1,20 @@
 # co-orchestrator agent preset —— cohub 纯调度主代理身份。
 #
 # 参照 @deepseek-ai/dsh 官方 code preset 的结构：本组合挂载于单个代理的
-# scope，persona 行遮蔽部署默认 persona。模型面向工具全部显式列出。
+# scope，persona 行遮蔽部署默认 persona。模型面向工具全部显式列出；
+# 不挂文件/编辑/Shell 工具行——在未全局注册这些工具行（如 dsh-base 最小化
+# 组合）的部署中，本 preset 的主代理自然看不到它们。
 #
-# 关于「主代理不亲自操作文件 / Shell / 外网」的两层约束：
+# 注意（rc.6 限制）：subagent 子代理会继承父代理的 preset 组合，
+# 且 per-child toolFilter 只能收窄不能放宽。因此在 dsh-base 全局注册了
+# 全部模型工具的部署里，本 preset 无法硬性移除工具——
+# 「绝不亲自操作文件」由 co-orchestrator 技能的硬性规则在提示词层约束
+# （与 OpenCode 原版行为一致）。
 #
-# 1) rc.6 限制：subagent 子代理会继承父代理的 preset 组合，且 per-child
-#    toolFilter 只能收窄不能放宽。因此 preset 必须挂载文件 / Shell / 外网
-#    工具行（co-explorer / co-fixer / co-librarian 等子代理才能继承使用），
-#    这同时让主代理自己也能调到。
-#
-# 2) 运行时收口（dsh-cohub 插件 apply()）：在 agent/created 事件回调中检查
-#    joined preset id，对 co-orchestrator 主代理调用
-#    `agent.ctx.tools.restrict({deny: [...]})`，把以下工具从主代理视图收口：
-#      - 文件读写：read / write / edit / read_image
-#      - 文件搜索：grep / glob / ast_grep_search
-#      - Shell：bash / pwsh
-#      - 外网：web_search / web_fetch
-#    restrict 挂在 agent.ctx scope 内，仅作用于该 agent 自己的工具视图；
-#    子代理的视图不受影响（子代理 ctx 与主代理 ctx 不同 scope）。
-#    这样主代理物理上拿不到这些工具，只能走 delegate 委派。
-#
-# 「绝不亲自操作文件」最终由运行时 restrict（硬性）+ persona 提示词（软性）
-# 双重保障。
+# v0.3.0 修正（修复派发）：原 preset 只挂 tool-workflow，缺 spawn/fork
+# 委派工具行，主代理无法实际 spawn co-* 子代理。这里补齐 delegation-subagents
+# group（subagent/subagent_fork/control/list-agents/ralph），persona「全部委派
+# 给专职子代理」才能落地。同时新增 compaction group 防长会话爆 context。
 
 # ── 身份 ────────────────────────────────────────────────────────────────
 - id: persona
@@ -117,33 +109,6 @@
       config:
         subagentProvider: spawn
         maxRounds: 64
-
-# ── 文件 / Shell / 外网（通过子代理继承生效；主代理 persona 仍禁止自用）────
-# 按 rc.6 限制：subagent 子代理继承父代理 preset 的工具表，per-child toolFilter
-# 只能收窄不能放宽。原 preset 没挂这些 → 子代理（co-explorer/co-fixer/co-librarian）
-# 也看不到 → 「全工具 missing」。这里补齐后子代理才能真正读写、跑 shell、搜外网。
-- id: tool-bash
-  name: '@deepseek-ai/dsh-tool-bash'
-  disabled: !!js process.platform === 'win32'
-
-- id: tool-pwsh
-  name: '@deepseek-ai/dsh-tool-pwsh'
-  disabled: !!js process.platform !== 'win32'
-
-- id: tool-fs
-  name: '@deepseek-ai/dsh-tool-fs'
-
-- id: tool-fs-search
-  name: '@deepseek-ai/dsh-tool-fs-search'
-
-- id: tool-web
-  name: '@deepseek-ai/dsh-tool-web'
-  config:
-    fetch: false
-
-# ── 本地 skill 发现 ─────────────────────────────────────────────────────────
-- id: skill-filesystem
-  name: '@deepseek-ai/dsh-skill-filesystem'
 
 # ── 上下文压缩（防长会话爆 context）─────────────────────────────────────────
 - id: compaction

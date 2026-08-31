@@ -148,66 +148,61 @@ cohub:
 - 本次 P3 三切片（src/delegate.ts +429 行 / src/index.ts +126 行 / src/env-signatures.ts 新文件 / test/*-p3.ts）+ 客户端 UI（src/client/index.js 新增 847 行）+ cordis.patch.yml 注释 + README 重写，叠加于同一工作树，已共存验证（测试 137 PASS、DSH 浏览器实测 0 错误）。
 - 物理隔离（推理型代理无 node:fs）仍属 DSH 源码层待办，本次未动。
 
-## 12. 第四波：编排硬化（co-orchestrator preset 收口 + cohub-standard 双模式）
+## 12. 第四波：编排硬化（preset 委派工具面补全 + cohub-standard 双模式 + restrict 回退）
 
 ### 12.1 背景与动机
 
-延续 11.8 末尾"物理隔离是 DSH 源码层待办"的判断——在不动 DSH 主仓的前提下，用「运行时 restrict + preset 工具行双层约束」实现 co-orchestrator 主代理的物理工具收口，强制走 delegate 委派。同时新增 cohub-standard preset，给"想直接动手 + 调度混合"的用户第二种选择。
+v0.2.0 已落地 P3 三切片，但 co-orchestrator preset 仍有两个遗留问题：
 
-### 12.2 rc.6 限制下的双层约束（presets/co-orchestrator/agent.cordis.yml）
+- **委派工具面缺失**：原 preset 只挂 `tool-workflow`（编排多 agent 脚本），缺 `subagent` / `subagent_fork` / `subagent-control` / `list-agents` / `ralph`——主代理 spawn co-* 子代理的能力实际不可用，persona「全部委派给专职子代理」无法落地。
+- **缺标准模式选项**：纯调度主代理对很多用户过严；想"直接动手 + 调度混合"的用户没有第二选择。
 
-DSH 0.1.0-rc.6 的两个硬约束决定了方案形态：
+v0.3.0 解决上述两个问题，并尝试一个**已回退**的"运行时 restrict 物理收口"实验。
 
-- **子代理继承父 preset 工具表**：subagent spawn 后会继承父代理 preset 的全部工具行；per-child toolFilter **只能收窄不能放宽**。
-- **意味着**：co-orchestrator preset 必须挂载 fs/shell/web 工具行——否则子代理（co-explorer/co-fixer/co-librarian 等）继承不到「全工具 missing」，全代理瘫。
-- **副作用**：挂载工具行后主代理自己也能调 fs/shell/web，必须用运行时机制收口。
+### 12.2 co-orchestrator preset 改造（presets/co-orchestrator/agent.cordis.yml）
 
-采用 **运行时 restrict（硬性）+ persona 提示词（软性）** 双重保障：
+保留 v0.2.0 的"工具不挂载 + persona 软约束"基线，**新增**：
 
-- **第一层（硬性）**：`src/index.ts` 新增 ⑦ `cohub.orchestratorRestrict()` effect，监听 `agent/created` 事件；用 `ctx.reflect.get('agentPresets', false)` 拿宿主 agentPresets 服务，调 `presets.composedPreset(agent.ctx)` 拿到该 agent 当前 joined preset id；preset id === 'co-orchestrator' 时调 `agent.ctx.tools.restrict({ deny: [...] })` 把 11 个工具从主代理视图物理移除（read/write/edit/read_image/grep/glob/ast_grep_search/bash/pwsh/web_search/web_fetch）；disposer 挂 `agent.ctx.effect()` 自动撤销（agent 销毁即释放）。
-- **第二层（软性）**：persona 行保留「绝不亲自操作文件」提示词，作为最后一道保险（避免 restrict 在某版本被禁用时模型裸奔）。
+- `delegation-subagents` group（`@deepseek-ai/dsh-tool-subagent-control` + `list-agents` + `subagent` / `subagent_fork` + `ralph`）—— 修复委派工具面缺失。
+- `compaction` group（`compaction-basic` + `command-compact` + `tool-result-pruner` threshold=8192/head=4096/tail=1024）—— 防长会话爆 context。
 
-restrict 作用域：`agent.ctx.tools.restrict()` 改的是该 agent 自身的工具视图；子代理的 ctx 与主代理 ctx 是不同 scope，子代理视图不受影响——这是本方案能成立的关键。
+顶部注释新增"v0.3.0 修正（修复派发）"段，说明原 preset 缺 spawn/fork 委派行、本版本补齐。
 
-### 12.3 co-orchestrator preset 改造（presets/co-orchestrator/agent.cordis.yml）
-
-顶部注释重写：原"工具不挂 + 提示词硬约束"改为"挂载 + 运行时收口"双层方案说明。
-
-新增/补全的工具行：
-
-- `delegation-subagents` group（`@deepseek-ai/dsh-tool-subagent-control` + `list-agents` + `subagent` / `subagent_fork` + `ralph`）—— 修复原 preset 只挂 `tool-workflow`、缺 spawn/fork/control/list-agents/ralph 的缺陷；persona「全部委派给专职子代理」才能落地。
-- `tool-bash` / `tool-pwsh`（平台互斥 disabled）—— Shell 类
-- `tool-fs` —— 文件读写
-- `tool-fs-search` —— 文件搜索
-- `tool-web`（`fetch: false`）—— 外网
-- `skill-filesystem` —— 本地 skill 发现
-- `compaction` group（`compaction-basic` + `command-compact` + `tool-result-pruner` threshold=8192/head=4096/tail=1024）—— 防长会话爆 context
-
-### 12.4 cohub-standard preset 新增（presets/cohub-standard/agent.cordis.yml）
+### 12.3 cohub-standard preset 新增（presets/cohub-standard/agent.cordis.yml）
 
 骨架直接拷贝 `node_modules/@deepseek-ai/dsh/config/agent-presets/standard/agent.cordis.yml`，仅修改 persona 段注入 cohub 中文身份与调度纪律；其余工具栈（fs / shell / web / subagent / planning / compaction / workflow / ralph）与 standard 完全一致。
 
-**与 co-orchestrator 的差异（关键边界）**：
+**与 co-orchestrator 的差异**：
 
 | 维度 | co-orchestrator | cohub-standard |
 |---|---|---|
 | 工具模式 | Code 模式（run_code SDK 包） | 标准模式（直接调工具） |
-| fs/shell/web | restrict 收口（主代理看不见） | 直接挂载 |
+| fs/shell/web | 不挂载（persona 软约束） | 直接挂载 |
 | 委派工具面 | delegate + subagent + ralph + workflow | delegate + subagent + ralph + workflow |
 | 适用场景 | 长链调度 / 多模型共识 / 严格自律 | 直接动手 + 调度混合 |
 
 两 preset 共用：12 个 co-* 技能 / delegate 工具 / cohub:language / cohub:schedule 段（host plane 注入，与 preset 解耦）。
 
-### 12.5 实施细节与边界
+### 12.4 已回退：运行时 restrict 物理收口（src/index.ts ⑦ 实验段）
 
-- `apply()` 启动期防御：`ctx.reflect.get('subagents', false)` 取代直接读 `ctx.subagents`——`@cordisjs/plugin-loader` 的 `cordis:include` wrap 可能剥离 inject；reflect 走非强校验通道，缺失返回 undefined。
-- restrict 失败容错：catch 后 `ctx.logger.warn` 不抛——失败仅意味主代理"软提示"模式生效，不阻塞插件挂载。
-- `presets.composedPreset(agent.ctx)` 缺失时跳过：宿主 agentPresets 服务未声明（罕见部署）→ 静默跳过，依赖 persona 软约束。
-- 未做：单测新增 restrict 用例（rc.6 `tools.restrict` 行为依赖宿主生命周期，模拟成本高；`agent/created` 事件通路与 ctx.reflect.get 防御已在 P3 单测体系覆盖）。
+**动机**：在 rc.6 限制（subagent 继承父 preset 工具表 + toolFilter 只能收窄）下，原想用「fs/shell/web 工具挂载让子代理继承 + 运行时 `tools.restrict({deny})` 把主代理自己收口」实现硬性隔离。
 
-### 12.6 后续候选（v0.4.0+ 候选）
+**实现**：监听 `agent/created` 事件，用 `ctx.reflect.get('agentPresets', false).composedPreset(agent.ctx)` 拿 preset id，对 `co-orchestrator` 主代理调 `agent.ctx.tools.restrict({ deny: [...] })` 把 11 个工具（read/write/edit/read_image/grep/glob/ast_grep_search/bash/pwsh/web_search/web_fetch）从主代理视图物理移除；disposer 挂 `agent.ctx.effect()` 自动撤销。
 
-- `presets.composedPreset` 拿到的是字符串 id，restrict 列表硬编码 11 个工具名——若 dsh 后续新增 fs/shell/web 类工具需手动追加（可在 `src/tools.ts` 集中维护 deny 列表）。
-- cohub-standard preset 暂未接 cohub settings 卡片；如有差异化配置需求可在卡片加「preset mode」开关。
-- 物理隔离（推理型代理 ctx 无 node:fs）仍属 DSH 主仓改造范畴，本包已用 restrict 接近等价效果。
+**回退原因**：实测发现主代理**无法派发任务给子代理**——症状超出 deny 列表范围（delegate / subagent / workflow / ralph 都不在 deny 列表里，但实际全部失效）。可能原因：
+
+- `agent.ctx.tools.restrict({deny})` 在 DSH 0.1.0-rc.6 上行为与假设不符（白名单语义 / 调用抛错导致工具视图损坏 / 触发时机错位）。
+- `agent/created` 事件挂载时机与主代理工具视图初始化次序错位。
+- `presets.composedPreset(agent.ctx)` 返回值结构与假设不同。
+
+由于无法联网对照 DSH 源码确认实际语义，且该路径不通过单测体系（`tools.restrict` 行为依赖宿主生命周期，模拟成本高），**选择回退该实现**——回到 v0.2.0 的「preset 不挂 fs/shell/web + persona 软约束」基线。
+
+**教训**：cohub 工作流里"co-oracle 审查"环节本应拦下"未经验证的 restrict API 假设"——本次未走该环节。下次涉及宿主核心 API（tools / ctx / agentPresets）改动前，必须先在 DSH 主仓对应包目录下确认 API 存在与语义，或加单测覆盖，否则不准动手。
+
+### 12.5 边界与后续候选（v0.4.0+）
+
+- `delegation-subagents` group 已含 subagent-control / list-agents / ralph——DSH 后续若新增 spawn 后端（如 codex / claude-code 子代理 provider），preset 需对应补 disabled 块（参考 `presets/cohub-standard/agent.cordis.yml` 内已 disabled 的 `subagent-codex` / `subagent-claude-code` 写法）。
+- cohub-standard preset 暂未接 cohub settings 卡片「preset mode」开关——若用户想 GUI 切换预设，可补 `installAgentPresets` 之外的安装入口。
+- 物理隔离（推理型代理 ctx 无 node:fs）仍属 DSH 主仓改造范畴，本包未尝试——v0.3.0 不再假装 restrict 能接近该效果。
+
 

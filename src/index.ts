@@ -288,44 +288,4 @@ export function apply(ctx, config) {
     });
     return off;
   }, "cohub.tokenMeter()");
-
-  // ⑦ 主代理工具收口（co-orchestrator 自约束）：监听 agent/created 事件，
-  //    对 joined 到 co-orchestrator preset 的 agent 调用 tools.restrict({deny:[...]})，
-  //    让主代理物理上拿不到文件 / Shell / 外网类工具，强制只能走 delegate 委派。
-  //    原因：rc.6 限制下子代理继承父 preset 工具表（per-child toolFilter 只能收窄不能放宽），
-  //    所以 co-orchestrator preset 必须挂 fs/shell/web 工具让子代理能继承使用；
-  //    但这同时让主代理自己也能调——必须用运行时 restrict 把主代理工具收口。
-  //    子代理不受影响：restrict() 挂在 agent.ctx scope 内，仅作用于该 agent 自身视图。
-  const ORCHESTRATOR_DENY_TOOLS = [
-    // 文件读写（@deepseek-ai/dsh-tool-fs）
-    "read", "write", "edit", "read_image",
-    // 文件搜索（@deepseek-ai/dsh-tool-fs-search）
-    "grep", "glob", "ast_grep_search",
-    // Shell（@deepseek-ai/dsh-tool-bash / dsh-tool-pwsh）
-    "bash", "pwsh",
-    // 外网（@deepseek-ai/dsh-tool-web）
-    "web_search", "web_fetch",
-  ];
-  ctx.effect(() => {
-    const off = ctx.on("agent/created", ({ agent }) => {
-      try {
-        const presets = ctx.reflect?.get?.("agentPresets", false);
-        if (!presets || typeof presets.composedPreset !== "function") return;
-        const presetId = presets.composedPreset(agent.ctx);
-        if (presetId !== "co-orchestrator") return;
-        const tools = agent.ctx?.tools;
-        if (!tools || typeof tools.restrict !== "function") {
-          ctx.logger.warn("[cohub orchestrator-restrict] agent " + agent.id + " joined co-orchestrator but agent.ctx.tools 不可用，跳过 restrict");
-          return;
-        }
-        const disposer = tools.restrict({ deny: ORCHESTRATOR_DENY_TOOLS });
-        ctx.logger.info("[cohub orchestrator-restrict] agent " + agent.id + " (preset=co-orchestrator) 已收口 " + ORCHESTRATOR_DENY_TOOLS.length + " 个工具：" + ORCHESTRATOR_DENY_TOOLS.join(", "));
-        // 把 restrict 的 disposer 挂到 agent fiber 上，agent 销毁时自动撤销
-        agent.ctx.effect(() => disposer, "cohub.orchestratorRestrict()");
-      } catch (err) {
-        ctx.logger.warn("[cohub orchestrator-restrict] 失败：" + (err instanceof Error ? err.message : String(err)));
-      }
-    });
-    return off;
-  }, "cohub.orchestratorRestrict()");
 }

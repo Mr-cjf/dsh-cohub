@@ -185,7 +185,7 @@ npm run audit -- <sessionDir> [--rules <json>] [--rules-file <path>] [--json <ou
 
 ## co-orchestrator agent preset（Phase 2）
 
-`presets/co-orchestrator/` 提供调度者主代理身份（persona + 调度工具面：subagent/fork/workflow/skill/todo/jobs/ask-user/goal）。
+`presets/co-orchestrator/` 提供调度者主代理身份（persona + 调度工具面：subagent/fork/workflow/skill/todo/jobs/ask-user/goal + compaction）。
 
 **自动安装**：本包在 `apply` 时会把内置 preset 复制到 `~/.dsh/.agent-presets/co-orchestrator/`（幂等，不覆盖你已修改的同名 preset）。`dsh plugin --profile web add dsh-cohub` 装完重启后，即可在 GUI 的 agent preset 选择器中切换，无需手动操作。
 
@@ -196,9 +196,9 @@ mkdir -p ~/.dsh/.agent-presets/co-orchestrator
 cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 ```
 
-在 GUI 的 agent preset 选择器中切换。
+在 GUI 的 agent preset 选择器中切换。注意（rc.6 限制）：子代理继承父代理的 preset 组合且 toolFilter 只能收窄，因此 preset 不硬性移除文件工具——「绝不亲自操作文件」由 co-orchestrator 技能在提示词层约束（与 OpenCode 原版一致）。
 
-**v0.3.0 强化（rc.6 限制下的双层约束）**：子代理继承父 preset 工具表且 per-child toolFilter 只能收窄不能放宽，因此 co-orchestrator preset 必须挂载 fs/shell/web 工具行让子代理（co-explorer/co-fixer/co-librarian 等）继承使用——但这同时让主代理自己也能调。dsh-cohub 在 `apply()` 时通过监听 `agent/created` 事件，对 joined co-orchestrator preset 的主代理调 `tools.restrict({deny:[...]})`，把文件 / Shell / 外网类工具从主代理视图物理移除，强制只能走 delegate 委派。子代理不受影响（restrict 挂在 agent.ctx scope 内，仅作用于该 agent 自身视图）。「绝不亲自操作文件」最终由运行时 restrict（硬性）+ persona 提示词（软性）双重保障。
+**v0.3.0 修正（修复派发）**：原 preset 只挂 `tool-workflow`，缺 spawn/fork 委派工具行，主代理无法实际 spawn co-* 子代理。v0.3.0 补齐 `delegation-subagents` group（subagent / subagent_fork / control / list-agents / ralph）+ compaction group（防长会话爆 context）；persona「全部委派给专职子代理」才能落地。**前序版本中尝试用运行时 `tools.restrict({deny})` 物理收口文件 / Shell / 外网工具的做法已回退**——实测发现该 API 在 DSH 0.1.0-rc.6 上行为不符合预期，会连带影响委派工具，导致主代理无法派发；现回到「preset 不挂 fs/shell/web 工具行 + persona 软约束」方案。
 
 ## cohub-standard agent preset（Phase 4，v0.3.0 新增）
 
@@ -248,7 +248,7 @@ src/
   env-signatures.ts     P3-2 环境契约持久化（EnvSignatureLearner + 缓存）
   skills.ts             generate-skills.ts 生成物（禁止手编）
   client/index.js       settings 卡片（i18n + 12 个 P3 控件）
-presets/co-orchestrator/  内置 agent preset（Phase 2，纯调度模式 + 运行时 restrict 收口）
+presets/co-orchestrator/  内置 agent preset（Phase 2，纯调度模式 + 委派工具面补全 + compaction）
 presets/cohub-standard/   内置 agent preset（Phase 4，标准模式 + 中文身份，v0.3.0 新增）
 test/
   unit.ts               基础集成
