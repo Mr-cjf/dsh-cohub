@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     var React = require("react");
 
     var NS = "cohub";
-    var inject = ["slots", "locale", "remote", "settingsScope"];
+    var inject = ["slots", "locale", "remote", "remote.llm", "settingsScope"];
 
     var SKILL_ROWS = [
       { name: "co-orchestrator", label: "调度编排" },
