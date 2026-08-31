@@ -96,11 +96,7 @@
         toolName: subagent_fork
         backgroundMode: continuable
 
-    - id: tool-ralph
-      name: '@deepseek-ai/dsh-tool-ralph'
-      config:
-        subagentProvider: spawn
-        maxRounds: 64
+    
 
 # ── 上下文压缩（防长会话爆 context）─────────────────────────────────────────
 - id: compaction
