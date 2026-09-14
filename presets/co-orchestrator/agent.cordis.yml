@@ -46,8 +46,13 @@
       name: '@deepseek-ai/dsh-tool-workflow'
 
 # ── 技能（co-* 技能目录由 dsh-cohub 全局注册，本 preset 只需加载工具） ──
+# 注意：catalogEnabled: false 关闭目录注入——Orchestrator 使用 delegate() 委派，
+# 从不通过 skill() 加载 co-* 技能，无需每步注入 14 个技能目录浪费 token。
+# skill() 工具本身仍然注册，子代理（通过 delegate spawn）可正常使用。
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
+  config:
+    catalogEnabled: false
 
 # ── 任务与后台任务面板 ──────────────────────────────────────────────────
 - id: tool-todo
