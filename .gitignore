@@ -13,3 +13,6 @@ analysis/
 
 # Playwright MCP 测试临时产物
 .playwright-mcp/
+
+# 本地临时工作目录（worktree/bare 仓库测试产物）
+.tmp/
