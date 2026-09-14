@@ -17,9 +17,9 @@
 // 优先级：delegateEnvContract.text（P1 手工覆盖）> manual 的 Config contract > 命中缓存
 // > DEFAULT_ENV_CONTRACT（探针式）；use="off" 不读不写；读写失败静默降级，行为不劣化。
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { COHUB_SKILLS } from "./skills.ts";
-import { DEFAULT_ENV_CONTRACT } from "./env-contract.ts";
-import { EnvSignatureLearner, envFingerprint, pickEnvContractText, readEnvSignatures, writeEnvSignatures, type EnvSignatureCache, type EnvSignaturesConfig } from "./env-signatures.ts";
+import { COHUB_SKILLS, type CoHubSkill } from "./skills.ts";
+import { EnvSignatureLearner, envFingerprint, pickEnvContractText, readEnvSignatures, writeEnvSignatures, type EnvSignaturesConfig } from "./env-signatures.ts";
+import { contentText } from "./text-utils.ts";
 
 /** 单个 skill 的路由配置（来自组合层 cordis.patch.yml 或 DSH settings 的 cohub.skills） */
 export interface SkillRouteConfig {
@@ -68,17 +68,6 @@ export interface DelegateConfig {
   };
   /** P3-2（N1）环境契约持久化：默认 auto（无缓存时行为不变，回退探针式） */
   envSignatures?: EnvSignaturesConfig;
-}
-
-/** 提取 ContentBlock 输出中的文本 */
-function contentText(output: unknown): string {
-  if (!Array.isArray(output)) return "";
-  return output
-    .filter((b): b is { type: string; text?: string } =>
-      !!b && typeof b === "object" && (b as { type?: string }).type === "text" && typeof (b as { text?: unknown }).text === "string",
-    )
-    .map(b => b.text as string)
-    .join("\n\n");
 }
 
 /** 归一化错误签名（S1）：从 tool/result data 提取可比较的错误特征；无法提取返回 null */
@@ -282,6 +271,94 @@ class StallWatchdog {
 }
 
 /**
+ * 按 skill 名精确匹配 COHUB_SKILLS；缺失或未知时兜底 co-fixer 并 warn。
+ * 同时查找该 skill 的路由配置（找不到返回 undefined）。
+ * 注意：路由查找使用原始 requestedSkill（可能为空/undefined），而非兜底后的 skill 名。
+ */
+export function resolveSkillAndRoute(
+  requestedSkill: string,
+  getRoutes: SkillRouteSource,
+  ctx: any,
+  logger?: any,
+): { skill: CoHubSkill; route: SkillRouteConfig | undefined } {
+  const skillName = requestedSkill || "co-fixer";
+  let skill = COHUB_SKILLS.find(s => s.name === skillName);
+  if (!skill) {
+    (logger ?? ctx.logger)?.warn?.('delegate: unknown skill "' + skillName + '", falling back to co-fixer');
+    skill = COHUB_SKILLS.find(s => s.name === "co-fixer")!;
+  } else if (!requestedSkill) {
+    (logger ?? ctx.logger)?.info?.('delegate: skill not specified, defaulting to co-fixer');
+  }
+  // 路由查找使用原始 requestedSkill（可能为空），而非 skillName（兜底后）
+  const route = (getRoutes() ?? []).find(s => s.name === requestedSkill);
+  return { skill, route };
+}
+
+/**
+ * 根据路由配置构造 agentOptions：仅当 route 有 provider 且该 provider 在可用集合中才覆盖；
+ * provider 不可用或未配置则返回 undefined（继承父/会话模型）。
+ */
+export function buildAgentOptions(
+  route: SkillRouteConfig | undefined,
+  ctx: any,
+): Record<string, unknown> | undefined {
+  if (route?.provider) {
+    const available = new Set(ctx.llm.listProviders().map(p => p.id));
+    if (available.has(route.provider)) {
+      return {
+        provider: route.provider,
+        ...(route.model ? { model: route.model } : {}),
+        ...(route.maxTokens ? { maxTokens: route.maxTokens } : {}),
+      };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 解析执行器环境契约文本。
+ * 优先级：manualText > manual contract > 命中缓存（指纹一致 + TTL 内）> DEFAULT_ENV_CONTRACT。
+ * envContract.enabled 为 false 时返回空字符串。
+ */
+export function resolveContractText(
+  envContract: { enabled: boolean; text?: string },
+  envSig: EnvSignaturesConfig,
+  ctx: any,
+): { text: string; source: string } {
+  if (!envContract.enabled) return { text: "", source: "disabled" };
+  const fp = envFingerprint();
+  const cached = envSig.use !== "off" ? readEnvSignatures(envSig.cachePath) : null;
+  const picked = pickEnvContractText({
+    manualText: envContract.text,
+    envSig,
+    cached,
+    fingerprint: fp,
+  });
+  if (picked.source === "cache") {
+    ctx.logger?.info?.("[cohub envsig] 命中环境契约缓存（指纹一致 + TTL 内）");
+  }
+  const text = "\n\n--- "
+    + (picked.source === "cache" || picked.source === "manual-contract"
+      ? "执行器环境契约（本环境已验证）"
+      : "执行器环境契约（通用原则 + 探测式自适应）")
+    + " ---\n\n" + picked.text;
+  return { text, source: picked.source };
+}
+
+/**
+ * 构建委派给子代理的完整 prompt。
+ * 拼接：skill 的 brief（或 content）+ contractText + 任务分隔 + userPrompt + retryNote。
+ */
+export function buildDelegatePrompt(params: {
+  skill: CoHubSkill;
+  contractText: string;
+  userPrompt: string;
+  retryNote?: string;
+}): string {
+  return (params.skill.brief || params.skill.content) + params.contractText + "\n\n--- 你的具体任务 ---\n\n" + params.userPrompt + (params.retryNote ?? "");
+}
+
+/**
  * 创建 delegate 工具。
  * 按 skill 名精确匹配 COHUB_SKILLS，注入该 skill 的精简指令（brief）+（可选）执行器环境契约 + 用户具体任务；
  * 通过 ctx.subagents.start("spawn", ...) 自包含地 spawn 子代理。
@@ -352,7 +429,6 @@ export function createDelegateTool(ctx: any, getRoutes: SkillRouteSource, config
     parameters: {
       skill: {
         type: "string",
-        required: false,
         description: "专职代理技能名，如 co-fixer/co-explorer/co-oracle。缺省时默认 co-fixer",
       },
       prompt: {
@@ -381,18 +457,8 @@ export function createDelegateTool(ctx: any, getRoutes: SkillRouteSource, config
         + " jobTracking=" + (schedule?.useJobTracking ?? "auto")
         + " adaptiveBatch=" + (schedule?.adaptiveBatch ?? "auto"));
 
-      // ① 按 skill 名精确匹配技能；缺失或未知时兜底 co-fixer
-      const requestedSkill = args.skill || "co-fixer";
-      let skill = COHUB_SKILLS.find(s => s.name === requestedSkill);
-      if (!skill) {
-        ctx.logger?.warn?.('delegate: unknown skill "' + requestedSkill + '", falling back to co-fixer');
-        skill = COHUB_SKILLS.find(s => s.name === "co-fixer")!;
-      } else if (!args.skill) {
-        ctx.logger?.info?.('delegate: skill not specified, defaulting to co-fixer');
-      }
-
-      // ② 查找该 skill 的路由配置（找不到则继承父模型）
-      const route = (getRoutes() ?? []).find(s => s.name === args.skill);
+      // ① 按 skill 名精确匹配技能 + 查找路由配置（共享函数）
+      const { skill, route } = resolveSkillAndRoute(args.skill, getRoutes, ctx);
 
       // ③ 注入该 skill 的精简指令（brief）+ 用户具体任务（spawn 不继承父上下文，必须自包含）
       const brief = skill.brief?.trim();
@@ -400,42 +466,18 @@ export function createDelegateTool(ctx: any, getRoutes: SkillRouteSource, config
         ctx.logger?.warn?.('delegate: skill "' + args.skill + '" 缺少 brief，回退完整 content');
       }
 
-      // ④ 构造 agentOptions：仅当路由配置了 provider 且该 provider 在可用集合中才覆盖；
-      //    provider 不可用或未配置则不传（继承父/会话模型，即兜底）。
-      let agentOptions: Record<string, unknown> | undefined;
-      if (route?.provider) {
-        const available = new Set(ctx.llm.listProviders().map(p => p.id));
-        if (available.has(route.provider)) {
-          agentOptions = {
-            provider: route.provider,
-            ...(route.model ? { model: route.model } : {}),
-            ...(route.maxTokens ? { maxTokens: route.maxTokens } : {}),
-          };
-        }
-      }
+      // ④ 构造 agentOptions（共享函数）
+      const agentOptions = buildAgentOptions(route, ctx);
 
-      // ⑤ 执行器环境契约注入（P1-1 + P3-2 N1）：
-      //    优先级：delegateEnvContract.text（P1 手工覆盖）> manual 的 Config contract
-      //            > 命中缓存的自动契约（指纹+TTL 有效）> DEFAULT_ENV_CONTRACT（探针式）。
-      //    use="off" 不读缓存；缓存读失败静默降级（行为同无缓存，不劣化）。
-      const fp = envFingerprint();
-      const cached = envSig.use !== "off" ? readEnvSignatures(envSig.cachePath) : null;
-      const picked = pickEnvContractText({
-        manualText: envContract.text,
+      // ⑤ 执行器环境契约注入（共享函数）
+      const contractResult = resolveContractText(
+        { enabled: envContract.enabled, text: envContract.text },
         envSig,
-        cached,
-        fingerprint: fp,
-      });
-      if (picked.source === "cache") {
-        ctx.logger?.info?.("[cohub envsig] 命中环境契约缓存（指纹一致 + TTL 内）");
-      }
-      const contractText = envContract.enabled
-        ? "\n\n--- "
-          + (picked.source === "cache" || picked.source === "manual-contract"
-            ? "执行器环境契约（本环境已验证）"
-            : "执行器环境契约（通用原则 + 探测式自适应）")
-          + " ---\n\n" + picked.text
-        : "";
+        ctx,
+      );
+      const contractText = contractResult.text;
+      // 计算指纹，供学习者使用（resolveContractText 内部已计算一次，但此处需要独立引用）
+      const fp = envFingerprint();
 
       // ⑥ 中止/失败重试循环（P1-2）+ N2 停滞检测（P3-1）：
       //    默认 maxRetries=0 → 单次尝试，失败即抛错（带结构化 cause）；
@@ -452,7 +494,12 @@ export function createDelegateTool(ctx: any, getRoutes: SkillRouteSource, config
             + "；已完成部分：" + (lastPartial || "（无）") + stallNote
             + "。请从中断处继续，不要重复已完成步骤。"
           : "";
-        const promptText = (brief || skill.content) + contractText + "\n\n--- 你的具体任务 ---\n\n" + args.prompt + retryNote;
+        const promptText = buildDelegatePrompt({
+          skill,
+          contractText,
+          userPrompt: args.prompt,
+          retryNote,
+        });
 
         // N2（P3-1）：启用时自建 AbortController 并转发 exec.signal（T3：父中止 → 子中止）；
         // 看门狗在 start 之前挂事件总线；enabled=false 时保持 P1 原路径（signal 直传，不注册监听）。

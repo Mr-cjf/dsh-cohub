@@ -17,6 +17,7 @@ import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { dshHomePath } from "@deepseek-ai/dsh-home-paths";
 import { DEFAULT_ENV_CONTRACT } from "./env-contract.ts";
+import { contentText } from "./text-utils.ts";
 
 /** 缓存文件版本（结构不兼容时整体作废） */
 export const CACHE_VERSION = 1;
@@ -221,17 +222,6 @@ export function pickEnvContractText(args: {
     }
   }
   return { text: DEFAULT_ENV_CONTRACT, source: "default" };
-}
-
-/** 提取 ContentBlock 输出中的文本（与 delegate.ts 内同名工具一致，保持模块自包含） */
-function contentText(output: unknown): string {
-  if (!Array.isArray(output)) return "";
-  return output
-    .filter((b): b is { type: string; text?: string } =>
-      !!b && typeof b === "object" && (b as { type?: string }).type === "text" && typeof (b as { text?: unknown }).text === "string",
-    )
-    .map(b => b.text as string)
-    .join("\n\n");
 }
 
 /** 归一化错误签名（tool/result data → 可比较字符串；无法提取返回 null） */

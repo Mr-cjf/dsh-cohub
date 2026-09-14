@@ -30,6 +30,46 @@ co-planner - 只读。综合需求+信息+规范输出结构化任务分解方�
 - 并行派发按下方「并行派发方式（原则 + 参数，禁止超预算大并行）」执行：优先并发：单条 assistant 消息里同时发出 N 个 delegate tool_use 块（N ≤ schedule.maxParallelBatch），由 agent loop 并发执行；单批规模受 `schedule.maxParallelBatch` 约束，禁止把可能超出墙钟预算的整批压进一次执行单元
 - delegate 按 cordis.patch.yml 的 skills 配置路由 provider/model 并 spawn 子代理；子代理不共享本会话，prompt 必须自包含（写全任务目标、相关文件路径、约束、期望输出格式；角色身份由 delegate 自动注入）
 
+### 批量委派方式（delegate_batch 工具）
+
+**用途**：一次工具调用内部并行派发多个子代理任务，避免 DSH agent loop 将多个 delegate 串行化。
+
+**何时使用**：
+- 需要同时派发 ≥2 个无依赖、不冲突的独立任务
+- 修改不同文件、探索不同目录、审查不同模块等互不干扰的场景
+- ⚠️ 同文件修改仍需串行，不能放入同一批 delegate_batch
+
+**参数**：
+- `tasks`：任务数组，每项包含：
+  - `id`（可选）：任务标识，用于结果映射；不提供时自动生成 task-0、task-1...
+  - `skill`（必填）：专职代理名，如 co-fixer、co-explorer、co-oracle
+  - `prompt`（必填）：具体任务描述（自包含，写全目标、文件路径、约束）
+
+**特性**：
+- 内部使用 Promise.allSettled() 并行启动所有子代理
+- 每个 task 有独立的 AbortController，超时时主动中止子代理
+- 每个 task 只尝试一次（不重试），通过墙钟预算超时兜底
+- 父级中止时全部子代理取消
+- 返回结构化结果：每个 task 的 status（completed/failed/error）、result、error
+
+**示例**：
+delegate_batch({
+  tasks: [
+    { id: "explore-auth", skill: "co-explorer", prompt: "搜索 src/auth/ 目录下所有认证相关文件" },
+    { id: "fix-login", skill: "co-fixer", prompt: "在 src/auth/login.ts 中修复类型错误" },
+    { id: "review-api", skill: "co-oracle", prompt: "审查 src/api/routes.ts 的安全问题" },
+  ]
+})
+
+**对比 delegate**：
+| 维度 | delegate | delegate_batch |
+|------|----------|----------------|
+| 每次调用 | 1 个任务 | N 个任务（N≥1） |
+| 并行方式 | 依赖 agent loop 并发多个 tool_use | 工具内部 Promise.allSettled |
+| 重试 | 支持（P1-2） | 不支持（每个 task 一次） |
+| 停滞检测 | 支持（N2） | 不支持 |
+| 适用场景 | 单任务、需要重试、需要停滞检测 | 批量并行独立任务 |
+
 ### 并行派发方式（原则 + 参数，禁止超预算大并行）
 - **并行原则（任何环境成立）**：无依赖且不冲突的任务并行；有依赖/同文件写冲突串行；并行度克制，收益递减收敛分批。
 - **批大小参数**：单批 ≤ `schedule.maxParallelBatch`（当前生效值见系统提示词注入的「调度参数」段；部署可调，本环境观测值 2-3）。

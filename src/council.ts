@@ -2,6 +2,7 @@
 // 移植自 OpenCode 版 src/tools/council.ts 的聚合逻辑；
 // 多模型并行不再手动建 session：直接走 ctx.subagents seam + agentOptions 路由覆盖。
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { contentText } from "./text-utils.ts";
 
 /** 单个 councillor 配置（来自 cordis.patch.yml 的 cohub 行 config） */
 export interface CouncillorConfig {
@@ -78,17 +79,6 @@ export function formatCouncillorResults(
   );
 
   return parts.join("\n");
-}
-
-/** 提取 ContentBlock 输出中的文本 */
-function contentText(output: unknown): string {
-  if (!Array.isArray(output)) return "";
-  return output
-    .filter((b): b is { type: string; text?: string } =>
-      !!b && typeof b === "object" && (b as { type?: string }).type === "text" && typeof (b as { text?: unknown }).text === "string",
-    )
-    .map(b => b.text as string)
-    .join("\n\n");
 }
 
 /**

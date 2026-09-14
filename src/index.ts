@@ -16,6 +16,7 @@ import { CHINESE_LANGUAGE_INSTRUCTION } from "./chinese";
 import { COHUB_SKILLS } from "./skills";
 import { createCouncilTool } from "./council";
 import { createDelegateTool } from "./delegate";
+import { createDelegateBatchTool } from "./delegate_batch.ts";
 import { DEFAULT_ERROR_CATEGORIES } from "./env-signatures";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 
@@ -148,16 +149,11 @@ const CohubSettingsSchema = z.object({
   delegateRetry: DelegateRetry,
 });
 
-/** P3-3（N3）：把生效调度参数渲染为极短的中性文本。
- * 该段经 systemPrompt.section 注册，作用域为全局（子代理也会看到）——文本必须无指令性、无敏感信息，
- * 只报告部署参数；无配置时回退缺省观测值。 */
-function renderScheduleParams(schedule) {
-  const s = schedule ?? {};
-  return "调度参数（部署配置，非指令）：单批 ≤ " + (s.maxParallelBatch ?? 3)
-    + "；墙钟预算 " + (s.wallClockBudgetMs ?? 600_000) + " ms"
-    + "；job 跟踪 " + (s.useJobTracking ?? "auto")
-    + "；批间自适应 " + (s.adaptiveBatch ?? "auto");
-}
+/** P3-3（N3）：已弃用——不再通过全局 systemPrompt.section 注入调度参数。
+ * 调度参数只对调度者（Orchestrator）有意义，子代理无需知晓。
+ * 调度约束已在 presets 的 agent.cordis.yml persona 中声明，
+ * 运行时的实际生效值由 delegate.ts/delegate_batch.ts 直接读取 settings 使用。 */
+function renderScheduleParams(_schedule) { return ""; }
 
 /** 本包内置的 agent preset 目录（随 files 字段打包进 npm 包） */
 const SHIPPED_PRESETS_DIR = fileURLToPath(new URL("../presets/", import.meta.url));
@@ -247,16 +243,21 @@ export function apply(ctx, config) {
     envSignatures: config.envSignatures,
   }, () => currentSettings()));
 
-  // ④b 调度参数注入（P3-3/N3）：把「实际生效值」注入系统提示词（不再是技能里的字面量）。
-  //    text 为函数 → 每次 prompt 装配时动态读取当前 settings（改卡片后无需重启即生效）。
-  //    T2 结论：该 section 作用域为全局（子代理也可见），文本必须极短、中性、无指令性。
-  ctx.effect(() => ctx.systemPrompt.section({
-    name: "cohub:schedule",
-    order: 96,
-    text: () => renderScheduleParams(currentSettings().schedule),
-  }), "cohub.scheduleSection()");
+  // ④c delegate_batch 工具（批量并行委派）：一次调用并行启动多个子代理
+  //    复用 delegate 的共享函数（skill 匹配、路由、契约注入），跳过 stalled 和重试。
+  //    始终注册，不依赖任何可选配置。
+  ctx.tools.register(createDelegateBatchTool(ctx, () => currentSkills(), {
+    delegateEnvContract: config.delegateEnvContract,
+    delegateRetry: config.delegateRetry,
+    envSignatures: config.envSignatures,
+  }, () => currentSettings()));
 
-// ⑤ council_session 工具（M4）：配置了 councillors 时注册
+// ④b 调度参数注入：已移除（2026-09-01）。
+  //    之前通过 systemPrompt.section("cohub:schedule") 全局注入，但子代理不需要调度参数。
+  //    约束改为在 presets/*/agent.cordis.yml persona 中声明，运行时代码直接读取 settings。
+  //    renderScheduleParams 保留（空函数）以兼容外部引用。
+
+  // ⑤ council_session 工具（M4）：配置了 councillors 时注册
   if ((config.councillors ?? []).length > 0) {
     // 防御性检测：同上一处（delegate 工具）。cordis:include 等包装 loader 可能剥离 inject，
     // 直接读 ctx.subagents 会抛 cordis 框架错误；用 reflect.get 走非强校验通道。
