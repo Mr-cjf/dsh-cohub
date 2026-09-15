@@ -1,3 +1,3 @@
 name: CoHub 创造模式（cohub-cordis）
-description: DSH 创造模式（可自改运行时 / 创作 agent preset）+ cohub 中文身份与调度纪律；保留 co-* 技能与 delegate 委派，由 dsh-cohub bundle 在 host plane 注入。
+description: 用 DSH 创造模式开发插件：可读写 harness 组合、做插件实验与 preset 创作，同时直接使用 cohub 的 delegate / delegate_batch 委派专职子代理。工具行与官方创造模式一致，仅注入中文身份与委派指引。
 order: 5

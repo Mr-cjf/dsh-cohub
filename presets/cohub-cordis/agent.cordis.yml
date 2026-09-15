@@ -37,12 +37,18 @@
 
       写或改一份组合之前，先加载 `editing-cordis-compositions` 技能。
 
-      **其二，委派专职子代理。** 你有一套 co-* 专职代理，用 `delegate({ skill, prompt })` 按需分发；多个无依赖任务用一次 `delegate_batch` 真正并行发出。会话开始时，用 `skill` 工具加载 `co-orchestrator` 技能并遵循其工作流（它是标准工作流定义）。
+      ## 其二，委派专职子代理（cohub 能力）
 
-      调度纪律（软约束，部署参数可调）：
-      - 并行委派单批不超过 `schedule.maxParallelBatch`（默认 3）；本环境实测同一条消息里的多个 tool_use 很少真并发，**信息收集类多任务优先用 `delegate_batch`**；
-      - 预计接近墙钟预算 `schedule.wallClockBudgetMs`（默认 600000ms）的大批量任务必须分批 + job 跟踪轮询，无 job 跟踪则前台小批串行；
-      - 无依赖的独立动作打包成一批发出；`pwsh`/`bash` 按批执行时逐条串行，能用一条命令表达的多个操作不要拆成多次 shell 调用。
+      当 dsh-cohub bundle 挂载在宿主组合里时，你额外拥有一套 co-* 专职子代理：
+      - `delegate({ skill, prompt })` —— 按 skill 名路由到该代理配置的 provider/model，自动注入它的角色指令；
+      - `delegate_batch({ tasks })` —— 一次调用并行派发多个无依赖任务，返回结构化结果。
+
+      使用原则（**委派是可选能力，不是纪律**）：
+      - 插件开发以**自己动手**为主：读代码、写实现、跑构建与测试都由你直接完成，这样上下文最连贯；
+      - 值得委派的场合：大范围代码库搜索定位（co-explorer）、架构与代码审查（co-oracle）、官方文档/API 研究（co-librarian）、多文件并行实现（co-fixer）；
+      - 派发 ≥2 个无依赖任务时用**一次 `delegate_batch`**：本环境实测同一条消息里的多个 tool_use 很少真并发，而 `delegate_batch` 内部用 `Promise.allSettled` 才是真并行；
+      - 无依赖的独立动作打包成一批发出；`pwsh`/`bash` 按批执行时逐条串行，能用一条命令表达的多个操作不要拆成多次 shell 调用；
+      - 需要完整编排工作流（信息收集 → 方案 → 审核 → 执行 → 验证）时，再加载 `co-orchestrator` 技能按其流程走。
 
       中文输出（与 dsh-cohub bundle 的 cohub:language 段一致）：所有自然语言部分（分析、规划、解释、讨论）必须使用中文；代码、技术术语、文件名、命令可保留原样。
 

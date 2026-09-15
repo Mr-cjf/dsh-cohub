@@ -238,9 +238,9 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 
 ## cohub-cordis agent preset（Phase 5，v0.4.7 新增，创造模式）
 
-`presets/cohub-cordis/` 是 **DSH 官方「创造模式」（`cordis` preset）的完整拷贝 + cohub 中文身份**，用于"既要自己动手、又要能委派"的场景，并提供自改运行时的能力。
+`presets/cohub-cordis/` 是 **DSH 官方「创造模式」（`cordis` preset）的完整拷贝 + cohub 中文身份与委派指引**。定位是**用创造模式开发插件**：一边读改 harness 组合、做插件实验、创作 agent preset，一边直接调用 cohub 的 `delegate` / `delegate_batch` 把大范围搜索、审查、多文件实现外包给专职子代理。
 
-**与官方创造模式的关系**：工具行逐行一致（32 行，可用脚本比对），只改了 persona 段——注入 cohub 中文身份、`delegate` 委派纪律与调度参数。因此官方创造模式的全部能力都在：读写 harness 组合、`cordis_mount` 插件实验、创作 agent preset、`present` 产物交付。
+**与官方创造模式的关系**：工具行逐行一致（32 行，可用脚本比对），只改了 persona 段。因此官方创造模式的全部能力都在：读写 harness 组合、`cordis_mount` 插件实验、创作 agent preset、`present` 产物交付。
 
 **三者定位**：
 
@@ -248,9 +248,11 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 |---|---|---|---|---|
 | co-orchestrator | 纯调度（不挂 fs/shell/web + persona 软约束） | ✅ delegate | ✗ | 长链调度 / 多模型共识 / 严格自律 |
 | cohub-standard | 标准模式（直接调工具） | ✅ delegate | ✗ | 直接动手 + 调度混合 |
-| **cohub-cordis** | **创造模式（标准 + Cordis 自指工具面）** | ✅ delegate | ✅ | 自改 harness / 创作 preset / 插件实验 + 委派 |
+| **cohub-cordis** | **创造模式（标准 + Cordis 自指工具面）** | ✅ delegate | ✅ | **插件开发**：自改 harness / preset 创作 / 插件实验 + 委派 |
 
-**cohub 能力从哪来**：12 个 co-* 技能与 `delegate` / `delegate_batch` 工具由 dsh-cohub bundle 在 **host plane 全局注册**，与 preset 解耦——所以本 preset 不需要（也没有）额外的委派工具行。
+**cohub 能力从哪来**：12 个 co-* 技能与 `delegate` / `delegate_batch` 工具由 dsh-cohub bundle 在 **host plane 全局注册**，与 preset 解耦——所以本 preset 不需要（也没有）额外的委派工具行。已实测确认：`delegate` 与 `delegate_batch` 都出现在会话工具表中，任何 preset 的会话（含创造模式）都能直接用，只要 dsh-cohub 挂在该 profile 上。
+
+**使用方式**：agent preset 在会话**首次 turn 之后即锁定**（`agent-preset/locked: session has already started; its agent preset is fixed`），所以创造模式只能**新建会话**时选择，不能中途切换。
 
 **自包含技能**：本 preset 自带 `skills/`（`cordis-plugin-development`、`editing-cordis-compositions` 两份组合创作指导），通过 `customSkillDirs` 指向 preset 自身目录，因此无论安装到哪里都能解析。
 
