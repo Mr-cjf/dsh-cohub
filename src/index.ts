@@ -159,11 +159,25 @@ function renderScheduleParams(_schedule) { return ""; }
 const SHIPPED_PRESETS_DIR = fileURLToPath(new URL("../presets/", import.meta.url));
 
 /**
- * 把内置 agent preset（如 co-orchestrator）安装到用户 preset root
+ * 把内置 agent preset（如 co-orchestrator / cohub-cordis）安装到用户 preset root
  * （\`~/.dsh/.agent-presets/\`）。幂等：已存在的同名目录不覆盖，用户自己
  * 修改过的 preset 保留；安装失败只告警，绝不拖垮插件挂载（preset 是可选增强，
  * 技能才是核心能力）。
+ *
+ * 递归复制：preset 目录可能带子目录（cohub-cordis 自带 skills/ 组合创作技能，
+ * 供其 skill-filesystem 的 customSkillDirs 解析），只复制顶层文件会漏掉它们。
  */
+/** 递归复制一份 preset 目录树（目录不存在则创建）；导出以便单测覆盖嵌套子目录 */
+export function copyTree(src, dst) {
+  mkdirSync(dst, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const from = join(src, entry.name);
+    const to = join(dst, entry.name);
+    if (entry.isDirectory()) copyTree(from, to);
+    else if (entry.isFile()) copyFileSync(from, to);
+  }
+}
+
 function installAgentPresets(logger) {
   let entries;
   try {
@@ -178,10 +192,7 @@ function installAgentPresets(logger) {
     if (existsSync(dst)) continue;
     const src = join(SHIPPED_PRESETS_DIR, entry.name);
     try {
-      mkdirSync(dst, { recursive: true });
-      for (const file of readdirSync(src)) {
-        copyFileSync(join(src, file), join(dst, file));
-      }
+      copyTree(src, dst);
       logger?.info?.(`cohub: installed agent preset ${entry.name} into ${dst}`);
     } catch (error) {
       logger?.warn?.(`cohub: failed to install agent preset ${entry.name}`, error);

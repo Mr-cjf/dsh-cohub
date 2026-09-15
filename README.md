@@ -196,11 +196,23 @@ mkdir -p ~/.dsh/.agent-presets/co-orchestrator
 cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 ```
 
+> ⚠️ 上面的 `cp presets/<name>/*` **不会带上子目录**。带 `skills/` 的 preset（如 `cohub-cordis`）必须整目录复制，否则技能丢失；Windows 上推荐直接用随仓库提供的脚本（递归复制 + 防 `Copy-Item` 同名嵌套陷阱）：
+>
+> ```powershell
+> pwsh -File scripts/deploy-preset.ps1                       # 默认 cohub-cordis
+> pwsh -File scripts/deploy-preset.ps1 -PresetName cohub-standard
+> ```
+
 在 GUI 的 agent preset 选择器中切换。注意（rc.6 限制）：子代理继承父代理的 preset 组合且 toolFilter 只能收窄，因此 preset 不硬性移除文件工具——「绝不亲自操作文件」由 co-orchestrator 技能在提示词层约束（与 OpenCode 原版一致）。
 
 **v0.3.0 修正（修复派发）**：原 preset 只挂 `tool-workflow`，缺 spawn/fork 委派工具行，主代理无法实际 spawn co-* 子代理。v0.3.0 补齐 `delegation-subagents` group（subagent / subagent_fork / control / list-agents / ralph）+ compaction group（防长会话爆 context）；persona「全部委派给专职子代理」才能落地。**前序版本中尝试用运行时 `tools.restrict({deny})` 物理收口文件 / Shell / 外网工具的做法已回退**——实测发现该 API 在 DSH 0.1.0-rc.6 上行为不符合预期，会连带影响委派工具，导致主代理无法派发；现回到「preset 不挂 fs/shell/web 工具行 + persona 软约束」方案。
 
 **v0.4.6 修正（修复「留空 model」的秒失败）**：`cohub.skills` 中只配 `provider`、不配 `model` 时，旧版 `buildAgentOptions()` 只把 `provider` 交给子代理，模型则回落到**父会话的模型名**。当该模型名不属于这个 provider（例：`provider: tokenproto` 而父会话是 `deepseek-official/deepseek-flash`），DSH 的 pi-ai 适配器在网络 I/O 前就以 `UNKNOWN_MODEL` 拒绝，`delegate` 只返回 `subagent stopped with reason "error" after 0 retry(ies); partial:`，子代理会话里没有任何模型消息。v0.4.6 起：model 缺失时用 `ctx.llm.listModels(provider)` 取该 provider 目录的首个模型作为回退（适配器偏好顺序的第一项），查询失败或空目录则降级为旧行为。同时 settings 卡片的模型下拉框新增 `value=""` 占位项——旧版在 `value=""` 时会被浏览器渲染成列表**第一项**，让「留空」看起来像已经选好了模型。
+
+**v0.4.7 修正（工具批处理 + 委派细分 + 创造模式）**：
+- **A｜执行器环境契约新增「工具批处理」通用原则**（`src/env-contract.ts`）：一条消息里可发多个无依赖调用、无依赖只读调用应打包同批、`pwsh`/`bash` 按批执行是逐条串行所以能用一条命令表达的不要拆成多次 shell 调用；同时明确**批处理只省往返、不等于并行加速**（实测同批调用多被串行执行），并列出必须串行留白的场景（后续参数取决于前序结果 / 同文件写 / 破坏性 shell）。契约由 `delegate` 注入所有子代理，一处生效覆盖 12 个技能。
+- **C｜orchestrator 增加「信息收集的细分原则」**（`skills/orchestrator.md`）：先列独立事实清单 → 每个事实维度一个子任务 → ≥2 时用**一次 `delegate_batch`** 并行发出（实测 agent loop 对同批 tool_use 极少真并发，而 `delegate_batch` 内部 `Promise.allSettled` 是真并行）。
+- **D｜新增 cohub-cordis preset（创造模式）**：见上节。
 
 ## cohub-standard agent preset（Phase 4，v0.3.0 新增）
 
@@ -224,6 +236,26 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 
 **自动安装**：与 co-orchestrator 同样在 `apply()` 时复制到 `~/.dsh/.agent-presets/cohub-standard/`。重启后 GUI 的 agent preset 选择器中即可切换。
 
+## cohub-cordis agent preset（Phase 5，v0.4.7 新增，创造模式）
+
+`presets/cohub-cordis/` 是 **DSH 官方「创造模式」（`cordis` preset）的完整拷贝 + cohub 中文身份**，用于"既要自己动手、又要能委派"的场景，并提供自改运行时的能力。
+
+**与官方创造模式的关系**：工具行逐行一致（32 行，可用脚本比对），只改了 persona 段——注入 cohub 中文身份、`delegate` 委派纪律与调度参数。因此官方创造模式的全部能力都在：读写 harness 组合、`cordis_mount` 插件实验、创作 agent preset、`present` 产物交付。
+
+**三者定位**：
+
+| preset | 工具模式 | 委派 | 自改运行时 | 适用场景 |
+|---|---|---|---|---|
+| co-orchestrator | 纯调度（不挂 fs/shell/web + persona 软约束） | ✅ delegate | ✗ | 长链调度 / 多模型共识 / 严格自律 |
+| cohub-standard | 标准模式（直接调工具） | ✅ delegate | ✗ | 直接动手 + 调度混合 |
+| **cohub-cordis** | **创造模式（标准 + Cordis 自指工具面）** | ✅ delegate | ✅ | 自改 harness / 创作 preset / 插件实验 + 委派 |
+
+**cohub 能力从哪来**：12 个 co-* 技能与 `delegate` / `delegate_batch` 工具由 dsh-cohub bundle 在 **host plane 全局注册**，与 preset 解耦——所以本 preset 不需要（也没有）额外的委派工具行。
+
+**自包含技能**：本 preset 自带 `skills/`（`cordis-plugin-development`、`editing-cordis-compositions` 两份组合创作指导），通过 `customSkillDirs` 指向 preset 自身目录，因此无论安装到哪里都能解析。
+
+> **TRUST**：`cordis_mount` 会对模型写出的 JavaScript 求值并在活动运行时里执行，且本 agent 写出的组合会成为其他会话可挂载的 preset。请把使用本 preset 的会话**等同于 shell 访问权限**对待。
+
 ## 测试
 
 ```bash
@@ -234,7 +266,7 @@ node test/schedule-p3.ts   # P3-3 N3 调度参数（24 用例）
 node test/env-sig-p3.ts    # P3-2 N1 环境契约持久化（50 用例）
 ```
 
-基线合计 **137 用例全 PASS / 0 FAIL**（node >= 24）。无需 LLM，单测纯本地模拟。
+基线合计 **170 用例**（unit 20 + delegate-p1 41 + stall-p3 35 + schedule-p3 24 + env-sig-p3 50）。除 schedule-p3 的 5 个既有失败（`cohub:schedule` 注入段断言，与委派链路无关）外全部 PASS（node >= 24）。无需 LLM，单测纯本地模拟。
 
 ## 目录
 
@@ -252,6 +284,7 @@ src/
   client/index.js       settings 卡片（i18n + 12 个 P3 控件）
 presets/co-orchestrator/  内置 agent preset（Phase 2，纯调度模式 + 委派工具面补全 + compaction）
 presets/cohub-standard/   内置 agent preset（Phase 4，标准模式 + 中文身份，v0.3.0 新增）
+presets/cohub-cordis/     内置 agent preset（Phase 5，创造模式 + 中文身份 + 自包含组合创作技能，v0.4.7 新增）
 test/
   unit.ts               基础集成
   delegate-p1.ts        P1 环境契约注入 + 重试
