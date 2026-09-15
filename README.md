@@ -200,6 +200,8 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 
 **v0.3.0 修正（修复派发）**：原 preset 只挂 `tool-workflow`，缺 spawn/fork 委派工具行，主代理无法实际 spawn co-* 子代理。v0.3.0 补齐 `delegation-subagents` group（subagent / subagent_fork / control / list-agents / ralph）+ compaction group（防长会话爆 context）；persona「全部委派给专职子代理」才能落地。**前序版本中尝试用运行时 `tools.restrict({deny})` 物理收口文件 / Shell / 外网工具的做法已回退**——实测发现该 API 在 DSH 0.1.0-rc.6 上行为不符合预期，会连带影响委派工具，导致主代理无法派发；现回到「preset 不挂 fs/shell/web 工具行 + persona 软约束」方案。
 
+**v0.4.6 修正（修复「留空 model」的秒失败）**：`cohub.skills` 中只配 `provider`、不配 `model` 时，旧版 `buildAgentOptions()` 只把 `provider` 交给子代理，模型则回落到**父会话的模型名**。当该模型名不属于这个 provider（例：`provider: tokenproto` 而父会话是 `deepseek-official/deepseek-flash`），DSH 的 pi-ai 适配器在网络 I/O 前就以 `UNKNOWN_MODEL` 拒绝，`delegate` 只返回 `subagent stopped with reason "error" after 0 retry(ies); partial:`，子代理会话里没有任何模型消息。v0.4.6 起：model 缺失时用 `ctx.llm.listModels(provider)` 取该 provider 目录的首个模型作为回退（适配器偏好顺序的第一项），查询失败或空目录则降级为旧行为。同时 settings 卡片的模型下拉框新增 `value=""` 占位项——旧版在 `value=""` 时会被浏览器渲染成列表**第一项**，让「留空」看起来像已经选好了模型。
+
 ## cohub-standard agent preset（Phase 4，v0.3.0 新增）
 
 `presets/cohub-standard/` 提供 **DSH 标准 preset 骨架 + cohub 中文身份** 的第二选择——给不需要「纯调度硬约束」、想直接动手 + 调度混合工作流的用户。

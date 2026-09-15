@@ -8,6 +8,9 @@ src/skills.ts
 .test/
 node_modules/
 
+# 误生成的包管理器锁文件（本项目以 package-lock.json 为准）
+pnpm-lock.yaml
+
 # dsh 会话导出/分析产物
 analysis/
 
