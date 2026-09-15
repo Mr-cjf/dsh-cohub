@@ -8,10 +8,10 @@
 //   Config  —— schemastery 运行时配置 schema（cordis.patch.yml 的 config 据此校验）
 //   apply   —— 挂载时执行：注册系统提示词 section、runtime skills、内置 agent preset
 import z from "@deepseek-ai/schemastery";
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dshHomePath } from "@deepseek-ai/dsh-home-paths";
+import { copyTree, installShippedPresets } from "./preset-install";
 import { CHINESE_LANGUAGE_INSTRUCTION } from "./chinese";
 import { COHUB_SKILLS } from "./skills";
 import { createCouncilTool } from "./council";
@@ -134,9 +134,15 @@ export const Config = z.object({
   envSignatures: EnvSignatures,
   /** 调度参数（P3-3/N3）：批大小 / 墙钟预算 / job 跟踪 / 批间自适应；settings 可覆盖 */
   schedule: ScheduleConfig,
+  /** 是否把内置 agent preset 安装/升级到用户 preset root（~/.dsh/.agent-presets/）。
+   *  默认 true。设为 false 后本插件不再动该目录（已安装的 preset 不会自动删除，
+   *  需要时手动清理 ~/.dsh/.agent-presets/ 下对应目录）。 */
+  installPresets: z.boolean().default(true),
 });
 
 export { ScheduleConfig, CohubSettingsSchema };
+/** 兼容/测试导出：preset 安装台账与递归复制（实现位于 preset-install.ts） */
+export { copyTree, installShippedPresets, hashTree, removeInstallRecord } from "./preset-install";
 
 /** cohub 的 settings namespace（settings.yaml 的 cohub.* 段） */
 const COHUB_NS = settingsNamespace("cohub");
@@ -158,46 +164,27 @@ function renderScheduleParams(_schedule) { return ""; }
 /** 本包内置的 agent preset 目录（随 files 字段打包进 npm 包） */
 const SHIPPED_PRESETS_DIR = fileURLToPath(new URL("../presets/", import.meta.url));
 
-/**
- * 把内置 agent preset（如 co-orchestrator / cohub-cordis）安装到用户 preset root
- * （\`~/.dsh/.agent-presets/\`）。幂等：已存在的同名目录不覆盖，用户自己
- * 修改过的 preset 保留；安装失败只告警，绝不拖垮插件挂载（preset 是可选增强，
- * 技能才是核心能力）。
- *
- * 递归复制：preset 目录可能带子目录（cohub-cordis 自带 skills/ 组合创作技能，
- * 供其 skill-filesystem 的 customSkillDirs 解析），只复制顶层文件会漏掉它们。
- */
-/** 递归复制一份 preset 目录树（目录不存在则创建）；导出以便单测覆盖嵌套子目录 */
-export function copyTree(src, dst) {
-  mkdirSync(dst, { recursive: true });
-  for (const entry of readdirSync(src, { withFileTypes: true })) {
-    const from = join(src, entry.name);
-    const to = join(dst, entry.name);
-    if (entry.isDirectory()) copyTree(from, to);
-    else if (entry.isFile()) copyFileSync(from, to);
+/** 本包 package.json（与 lib/ 同级）——读取当前版本用于 preset 安装台账 */
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"));
+    return typeof pkg?.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
   }
 }
 
+/**
+ * 安装 / 升级内置 agent preset 到用户 preset root（`~/.dsh/.agent-presets/`）。
+ *
+ * 语义（见 preset-install.ts）：
+ *   - 首次安装：整目录复制（含 skills/ 等子目录）；
+ *   - 版本升级：只覆盖**未被用户改动**的文件，用户改过的文件跳过并告警；
+ *   - 无台账（首次或从旧版本升级上来）：退化为「仅新增」，不覆盖任何已存在目录。
+ * 安装失败只告警，绝不拖垮插件挂载（preset 是可选增强，技能才是核心能力）。
+ */
 function installAgentPresets(logger) {
-  let entries;
-  try {
-    entries = readdirSync(SHIPPED_PRESETS_DIR, { withFileTypes: true });
-  } catch {
-    return; // 没带 presets（本地源码开发）——静默跳过
-  }
-  const userRoot = dshHomePath(".agent-presets");
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const dst = join(userRoot, entry.name);
-    if (existsSync(dst)) continue;
-    const src = join(SHIPPED_PRESETS_DIR, entry.name);
-    try {
-      copyTree(src, dst);
-      logger?.info?.(`cohub: installed agent preset ${entry.name} into ${dst}`);
-    } catch (error) {
-      logger?.warn?.(`cohub: failed to install agent preset ${entry.name}`, error);
-    }
-  }
+  return installShippedPresets(SHIPPED_PRESETS_DIR, dshHomePath(".agent-presets"), readPackageVersion(), logger);
 }
 
 export function apply(ctx, config) {
@@ -215,8 +202,21 @@ export function apply(ctx, config) {
     ctx.skills.register(skill);
   }
 
-  // ③ 内置 agent preset（co-orchestrator）自动安装
-  installAgentPresets(ctx.logger);
+  // ③ 内置 agent preset（co-orchestrator / cohub-cordis）安装、升级与孤儿清理
+  //    installPresets=false 时不触碰用户 preset root（B：给部署/用户一个干净出口）
+  if (config.installPresets !== false) {
+    try {
+      const r = installAgentPresets(ctx.logger);
+      if (r.skipped.length > 0) {
+        ctx.logger?.warn?.(
+          "cohub: " + r.skipped.length + " 个 preset 文件因本地修改而在升级时被跳过：" + r.skipped.join(", "),
+        );
+      }
+    } catch (error) {
+      // 防御：安装是可选增强，任何异常都不得拖垮插件挂载
+      ctx.logger?.warn?.("cohub: agent preset 安装失败（忽略）", error);
+    }
+  }
 
 // ④ delegate 工具（核心）：按 skill 名路由到配置的 provider/model 并委派专职代理
   //    始终注册，不依赖 councillors 是否配置。路由表可由 DSH settings（settings.yaml 的
