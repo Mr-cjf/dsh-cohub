@@ -220,16 +220,28 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 - **孤儿清理**：包内已不再发布的 preset（曾记录在台账中的）会在加载时从用户目录移除，避免选择器残留幽灵条目；只清理台账确认由本插件安装过的 id，**不碰用户自建目录**。
 - **移除 `cohub-standard`**：其工具面是 `cohub-cordis` 的真子集，详见下方说明。
 
-**v0.4.9 修复（preset 无法挂载 → 新会话无法创建）**：
+**v0.4.9 修复（preset 无法挂载 → 新会话无法创建）**：这一次修的是**两个独立的挂载期故障**，症状相同（preset 不可用 → 以它为默认 preset 时新会话建不出来），日志都在 `%APPDATA%\DSH Desktop\logs\host\dsh-*.log`。
 
-`@deepseek-ai/dsh-persona` 的配置 schema 是 **`prefix`（required）/ `suffix`**，而两个内置 preset 一直沿用旧字段 `text:`，会让整行挂载失败：
+**其一：persona 字段名过时。** `@deepseek-ai/dsh-persona` 的 schema 是 `prefix`（required）/ `suffix`，而两个内置 preset 一直沿用旧字段 `text:`：
 
 ```
 [preset-tree] Error: failed to apply loader entry persona (@deepseek-ai/dsh-persona):
   invalid config: - $.prefix missing required value (at prefix)
 ```
 
-persona 行挂了 → 该 preset 不可用 → **以它为默认 preset 时新会话直接建不出来**（日志在 `%APPDATA%\DSH Desktop\logs\host\dsh-*.log`）。v0.4.9 把两个 preset 的 persona 字段统一为 `prefix`，并加结构断言防回归。
+已把两个 preset 的字段统一为 `prefix`。
+
+**其二：`tool-cordis` 与官方创造模式撞名。** `@deepseek-ai/dsh-tool-cordis` 挂载时会把一组 **Host 级 inspect provider**（`Service` / `Event` / `Builtin` / `Tool`）注册进**进程单例**注册表（`dsh-cordis-host-runner` 的 `CordisInspectRegistryService.register()`：`if (this.providers.has(manifest.id)) throw ...`）。官方 `cordis`（创造模式）preset 同样挂这一行，而 DSH 对同一 preset 共享 standing mount —— 于是两个 preset 在同一进程里各自挂载时必然撞名：
+
+```
+[tool-cordis] Error: Host Cordis inspect provider "Service" is already registered
+[preset-tree] Error: failed to apply loader entry tool-cordis (@deepseek-ai/dsh-tool-cordis):
+  Host Cordis inspect provider "Service" is already registered
+```
+
+**v0.4.9 起 `cohub-cordis` 不再挂 `tool-cordis`**（`present` 与组合创作技能保留）。需要 Cordis 自指能力（`cordis_define` / `cordis_run` / `cordis_mount` / `cordis_inspect_*`）时，请用官方**创造模式** preset —— 那里的 `tool-cordis` 是全进程唯一的一份。这是 DSH 当前版本的限制，不是配置可以绕开的。
+
+`test/preset-schema.ts` 现在同时断言：persona 必须 `prefix` 非空、**不得残留 `text:`**、**不得挂 `tool-cordis`**、关键工具行齐全、无制表符缩进、`cohub-standard` 不得复活。
 
 > 升级注意：安装台账按「用户是否改过」逐文件保护。若某个 preset 文件**既被用户改过、又需要跟随上游改名**，台账会判为用户改动而跳过自动更新 —— 此时需手动同步（或删除该 preset 目录让插件重新安装）。本次就是这种情况，已在该机器上手动修正。
 
@@ -239,18 +251,19 @@ persona 行挂了 → 该 preset 不可用 → **以它为默认 preset 时新�
 
 对已安装的老用户：插件加载时会读取安装台账，自动移除"曾由本插件安装、但已不再随包发布"的目录，所以重启后选择器里不会再出现它。若你**手动改造过** `~/.dsh/.agent-presets/cohub-standard/`，或该目录早于台账机制存在，它不会被自动清理——按需手动删除即可。
 
-## cohub-cordis agent preset（Phase 5，v0.4.7 新增，创造模式）
+## cohub-cordis agent preset（Phase 5，v0.4.7 新增；v0.4.9 移除 tool-cordis）
 
-`presets/cohub-cordis/` 是 **DSH 官方「创造模式」（`cordis` preset）的完整拷贝 + cohub 中文身份与委派指引**。定位是**用创造模式开发插件**：一边读改 harness 组合、做插件实验、创作 agent preset，一边直接调用 cohub 的 `delegate` / `delegate_batch` 把大范围搜索、审查、多文件实现外包给专职子代理。
+`presets/cohub-cordis/` 是 **DSH 官方「创造模式」（`cordis` preset）的骨架 + cohub 中文身份与委派指引**：标准模式的全部工具面、`present` 产物交付、组合创作技能，加上直接可用的 cohub `delegate` / `delegate_batch`。
 
-**与官方创造模式的关系**：工具行逐行一致（32 行，可用脚本比对），只改了 persona 段。因此官方创造模式的全部能力都在：读写 harness 组合、`cordis_mount` 插件实验、创作 agent preset、`present` 产物交付。
+**⚠️ 它不含运行时自改能力（`cordis_*` 工具）**：`tool-cordis` 在 Host 进程级 inspect 注册表里按 id 占位，与官方创造模式**同进程必然撞名**（v0.4.9 的修复二，见上）。要读写 harness 组合、做 `cordis_mount` 插件实验、动态定义/运行插件，请用官方**创造模式**；本 preset 用于"标准能力 + cohub 委派纪律"的日常开发。
 
 **两者定位**：
 
-| preset | 工具模式 | 委派 | 自改运行时 | 适用场景 |
+| preset | 工具模式 | 委派 | 运行时自改 | 适用场景 |
 |---|---|---|---|---|
 | co-orchestrator | 纯调度（不挂 fs/shell/web + persona 软约束） | ✅ delegate | ✗ | 长链调度 / 多模型共识 / 严格自律 |
-| **cohub-cordis** | **创造模式（标准 + Cordis 自指工具面）** | ✅ delegate | ✅ | **插件开发**：自改 harness / preset 创作 / 插件实验 + 委派 |
+| **cohub-cordis** | **标准模式 + 中文身份 + 组合创作技能** | ✅ delegate | ✗（用官方创造模式） | 直接动手 + 委派混合、插件开发日常 |
+| 官方 **创造模式**（`cordis`） | 标准 + **Cordis 自指工具面** | ✅ delegate（host plane，同样可用） | ✅ | 自改 harness / preset 创作 / 插件实验 |
 
 **cohub 能力从哪来**：12 个 co-* 技能与 `delegate` / `delegate_batch` 工具由 dsh-cohub bundle 在 **host plane 全局注册**，与 preset 解耦——所以本 preset 不需要（也没有）额外的委派工具行。已实测确认：`delegate` 与 `delegate_batch` 都出现在会话工具表中，任何 preset 的会话（含创造模式）都能直接用，只要 dsh-cohub 挂在该 profile 上。
 

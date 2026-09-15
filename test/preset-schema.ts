@@ -94,6 +94,14 @@ for (const name of presetNames) {
   }
   // ③ 至少一行 shell 工具（平台门控）
   check("含 shell 工具行（tool-bash 或 tool-pwsh）", byId.has("tool-bash") || byId.has("tool-pwsh"));
+
+  // ④ 禁止挂载 tool-cordis：它在 Host 进程级 inspect 注册表（CordisInspectRegistryService）
+  //    里按 id 占位，而官方 `cordis`（创造模式）preset 也挂同一行；两个 preset 在同一进程
+  //    里各自挂载必然撞名 —— 报 `Host Cordis inspect provider "Service" is already registered`，
+  //    使整个 preset 树挂载失败、以它为默认 preset 时新会话无法创建。
+  //    需要 Cordis 自指能力（cordis_define/cordis_run/cordis_mount/cordis_inspect_*）时，
+  //    改用官方创造模式 preset。
+  check("不挂 tool-cordis（否则与官方创造模式撞 inspect provider）", !byId.has("tool-cordis"));
 }
 
 console.log("");
