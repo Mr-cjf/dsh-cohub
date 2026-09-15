@@ -61,6 +61,15 @@ function check(name: string, cond: boolean) {
   check("enabled=true 注入 delegate 契约标记", captured[0].includes(DELEGATE_CONTRACT_MARKER));
   check("enabled=true 注入「先验证再批量」", captured[0].includes("先验证再批量"));
   check("enabled=true 注入「探测流程」", captured[0].includes("探测流程"));
+  // P4-2：契约新增「工具批处理」通用原则（无依赖调用打包 / shell 合并 / 串行留白场景）
+  check("契约含「工具批处理」原则", captured[0].includes("工具批处理"));
+  check("契约说明无依赖只读调用可打包同批", captured[0].includes("无依赖") && captured[0].includes("同一批"));
+  check("契约要求 shell 命令合并而非拆多次", captured[0].includes("不要拆成多次 shell 调用"));
+  check("契约点明批处理不等于并行加速", captured[0].includes("不等于并行加速"));
+  check("契约列出串行留白场景（同文件写 / 依赖前序结果）",
+    captured[0].includes("同一文件的写操作") && captured[0].includes("取决于前一个调用的结果"));
+  check("原有三条原则未因新增而丢失",
+    captured[0].includes("自包含") && captured[0].includes("先验证再批量") && captured[0].includes("错误可回传"));
 
   // enabled=false：技能内容本身（P0）可能已含契约段落，只要求不含 delegate 注入标记
   captured = [];
