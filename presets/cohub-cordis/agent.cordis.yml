@@ -5,10 +5,10 @@
 # compaction / delegation / web / self-modification / present）与官方创造模式**逐行一致**。
 #
 # 与另两个 preset 的关键差异：
-#   - co-orchestrator：纯调度，pass 不挂 fs/shell/web（persona 软约束主代理不自取）
-#   - cohub-standard：标准模式，自取 + 调度混合
-#   - cohub-cordis（本 preset）：标准模式 + **自改运行时**（Cordis 自指工具面）
+#   - co-orchestrator：纯调度，不挂 fs/shell/web（persona 软约束主代理不自取）
+#   - 本 preset：标准模式 + **自改运行时**（Cordis 自指工具面）
 #     —— 既能自己读改 harness / 创作 agent preset，又能委派 co-* 专职子代理
+#     （历史上的 cohub-standard 已于 v0.4.7 移除，其工具面是本 preset 的子集）
 #
 # cohub 能力从哪来（与 preset 解耦）：
 #   - 12 个 co-* 技能、delegate / delegate_batch 工具：由 dsh-cohub bundle 在

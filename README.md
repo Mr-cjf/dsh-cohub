@@ -200,7 +200,7 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 >
 > ```powershell
 > pwsh -File scripts/deploy-preset.ps1                       # 默认 cohub-cordis
-> pwsh -File scripts/deploy-preset.ps1 -PresetName cohub-standard
+> pwsh -File scripts/deploy-preset.ps1 -PresetName co-orchestrator
 > ```
 
 在 GUI 的 agent preset 选择器中切换。注意（rc.6 限制）：子代理继承父代理的 preset 组合且 toolFilter 只能收窄，因此 preset 不硬性移除文件工具——「绝不亲自操作文件」由 co-orchestrator 技能在提示词层约束（与 OpenCode 原版一致）。
@@ -214,27 +214,17 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 - **C｜orchestrator 增加「信息收集的细分原则」**（`skills/orchestrator.md`）：先列独立事实清单 → 每个事实维度一个子任务 → ≥2 时用**一次 `delegate_batch`** 并行发出（实测 agent loop 对同批 tool_use 极少真并发，而 `delegate_batch` 内部 `Promise.allSettled` 是真并行）。
 - **D｜新增 cohub-cordis preset（创造模式）**：见上节。
 
-## cohub-standard agent preset（Phase 4，v0.3.0 新增）
+**v0.4.8 变更（preset 安装台账 + 移除 cohub-standard）**：
+- **A｜preset 安装/升级台账**（`src/preset-install.ts`）：在 preset root 的**上一级**写 `<root>/../.cohub-preset-install.json`，记录每个 preset 的安装版本与逐文件 sha256。包版本升级时逐文件比对——**未被用户改动的文件跟随更新，用户改过的文件跳过并告警**，解决旧实现"目录已存在就跳过、老用户永远收不到 preset 修复"的问题。首次遇到"已存在但台账未记录"的目录时会尝试**纳入台账**（与包内有内容一致即视为插件早前安装），完全无一致文件的目录视为用户自建，永不触碰。台账损坏/读写失败一律降级为"仅新增"，绝不覆盖既有内容。
+- **B｜安装开关**：`cohub.installPresets`（默认 `true`）设为 `false` 后本插件完全不再触碰 `~/.dsh/.agent-presets/`，给不需要这些 preset 的部署一个干净出口。
+- **孤儿清理**：包内已不再发布的 preset（曾记录在台账中的）会在加载时从用户目录移除，避免选择器残留幽灵条目；只清理台账确认由本插件安装过的 id，**不碰用户自建目录**。
+- **移除 `cohub-standard`**：其工具面是 `cohub-cordis` 的真子集，详见下方说明。
 
-`presets/cohub-standard/` 提供 **DSH 标准 preset 骨架 + cohub 中文身份** 的第二选择——给不需要「纯调度硬约束」、想直接动手 + 调度混合工作流的用户。
+### 关于 `cohub-standard`（v0.4.7 移除）
 
-**与 co-orchestrator 的关键差异**：
+原先的 `cohub-standard`（标准模式 + cohub 身份）其 29 行工具面是 `cohub-cordis` 的**真子集**——只少了 `tool-cordis`、`present`、`command-goal`，而两者的 delegate 能力完全相同。因此 v0.4.7 删除该 preset，统一指向 **cohub-cordis**（标准模式全部能力 + 自改运行时）。
 
-| 维度 | co-orchestrator | cohub-standard |
-|---|---|---|
-| 工具模式 | Native 模式（不挂载 fs/shell/web + persona 软约束） | 标准模式（直接调工具） |
-| fs/shell/web | 不挂载（persona 软约束） | 直接挂载 |
-| 委派工具面 | delegate + subagent + ralph + workflow | delegate + subagent + ralph + workflow |
-| 适用场景 | 长链调度 / 多模型共识 / 严格自律 | 直接动手 + 调度混合 |
-| 调度纪律 | persona 软约束（不可破） | persona 软约束（可自主决定何时自取何时委派） |
-
-**共同点**：
-
-- 12 个 co-* 技能 + delegate 工具（host plane 注入，与 preset 解耦）
-- 中文 persona + 调度参数（cohub:language / cohub:schedule 段）
-- subagent / subagent_fork / ralph / workflow 完整调度工具面
-
-**自动安装**：与 co-orchestrator 同样在 `apply()` 时复制到 `~/.dsh/.agent-presets/cohub-standard/`。重启后 GUI 的 agent preset 选择器中即可切换。
+对已安装的老用户：插件加载时会读取安装台账，自动移除"曾由本插件安装、但已不再随包发布"的目录，所以重启后选择器里不会再出现它。若你**手动改造过** `~/.dsh/.agent-presets/cohub-standard/`，或该目录早于台账机制存在，它不会被自动清理——按需手动删除即可。
 
 ## cohub-cordis agent preset（Phase 5，v0.4.7 新增，创造模式）
 
@@ -242,12 +232,11 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 
 **与官方创造模式的关系**：工具行逐行一致（32 行，可用脚本比对），只改了 persona 段。因此官方创造模式的全部能力都在：读写 harness 组合、`cordis_mount` 插件实验、创作 agent preset、`present` 产物交付。
 
-**三者定位**：
+**两者定位**：
 
 | preset | 工具模式 | 委派 | 自改运行时 | 适用场景 |
 |---|---|---|---|---|
 | co-orchestrator | 纯调度（不挂 fs/shell/web + persona 软约束） | ✅ delegate | ✗ | 长链调度 / 多模型共识 / 严格自律 |
-| cohub-standard | 标准模式（直接调工具） | ✅ delegate | ✗ | 直接动手 + 调度混合 |
 | **cohub-cordis** | **创造模式（标准 + Cordis 自指工具面）** | ✅ delegate | ✅ | **插件开发**：自改 harness / preset 创作 / 插件实验 + 委派 |
 
 **cohub 能力从哪来**：12 个 co-* 技能与 `delegate` / `delegate_batch` 工具由 dsh-cohub bundle 在 **host plane 全局注册**，与 preset 解耦——所以本 preset 不需要（也没有）额外的委派工具行。已实测确认：`delegate` 与 `delegate_batch` 都出现在会话工具表中，任何 preset 的会话（含创造模式）都能直接用，只要 dsh-cohub 挂在该 profile 上。
@@ -268,7 +257,7 @@ node test/schedule-p3.ts   # P3-3 N3 调度参数（24 用例）
 node test/env-sig-p3.ts    # P3-2 N1 环境契约持久化（50 用例）
 ```
 
-基线合计 **170 用例**（unit 20 + delegate-p1 41 + stall-p3 35 + schedule-p3 24 + env-sig-p3 50）。除 schedule-p3 的 5 个既有失败（`cohub:schedule` 注入段断言，与委派链路无关）外全部 PASS（node >= 24）。无需 LLM，单测纯本地模拟。
+基线说明：`unit` 20 + `delegate-p1` 41 + `stall-p3` 35 + `schedule-p3` 24 + `env-sig-p3` 50 + `preset-copy` 13 + `preset-install` 31。除 `schedule-p3` 的 5 个既有失败（`cohub:schedule` 注入段断言，与委派链路无关）外全部 PASS（node >= 24）。无需 LLM，单测纯本地模拟。
 
 ## 目录
 
@@ -278,21 +267,25 @@ scripts/
   generate-skills.ts    .md → src/skills.ts（必须先跑）
   build-client.js       src/client/index.js → lib/client.js
   audit-session.mjs     会话导出目录审计 / 回归
+  deploy-preset.ps1     手动部署内置 preset 到用户 preset root（幂等，防嵌套）
 src/
-  index.ts              插件行入口（apply、Config schema、P3 三切片 schema）
+  index.ts              插件行入口（apply、Config schema、P3 三切片 schema、preset 安装接线）
+  preset-install.ts     内置 preset 安装/升级台账（未改动则更新、用户改动则跳过、孤儿清理）
   delegate.ts           delegate 工具 + P3-1 StallWatchdog
+  env-contract.ts       注入子代理的执行器环境契约文本（含「工具批处理」通用原则）
   env-signatures.ts     P3-2 环境契约持久化（EnvSignatureLearner + 缓存）
   skills.ts             generate-skills.ts 生成物（禁止手编）
   client/index.js       settings 卡片（i18n + 12 个 P3 控件）
 presets/co-orchestrator/  内置 agent preset（Phase 2，纯调度模式 + 委派工具面补全 + compaction）
-presets/cohub-standard/   内置 agent preset（Phase 4，标准模式 + 中文身份，v0.3.0 新增）
 presets/cohub-cordis/     内置 agent preset（Phase 5，创造模式 + 中文身份 + 自包含组合创作技能，v0.4.7 新增）
 test/
   unit.ts               基础集成
-  delegate-p1.ts        P1 环境契约注入 + 重试
+  delegate-p1.ts        P1 环境契约注入 + 重试 + 模型回退
   stall-p3.ts           P3-1 N2 停滞检测
   schedule-p3.ts        P3-3 N3 调度参数
   env-sig-p3.ts         P3-2 N1 环境契约持久化
+  preset-copy.ts        preset 递归复制（含真实 preset 结构断言）
+  preset-install.ts     preset 安装/升级台账（用户改动保护 + 孤儿清理 + 降级）
 cordis.patch.yml        bundle patch（含 P1/P3 全部 profile 字段示例）
 ```
 
