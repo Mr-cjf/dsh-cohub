@@ -239,9 +239,21 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
   Host Cordis inspect provider "Service" is already registered
 ```
 
-**v0.4.9 起 `cohub-cordis` 不再挂 `tool-cordis`**（`present` 与组合创作技能保留）。需要 Cordis 自指能力（`cordis_define` / `cordis_run` / `cordis_mount` / `cordis_inspect_*`）时，请用官方**创造模式** preset —— 那里的 `tool-cordis` 是全进程唯一的一份。这是 DSH 当前版本的限制，不是配置可以绕开的。
+**v0.4.9 起：`tool-cordis` 改由 host 层单次挂载，`cohub-cordis` 不再自己挂。** `dsh-cohub` 自带的 `cordis.patch.yml`（bundle 层）用顶层 `insert`（无 id → 追加到 host 组合）挂一次：
 
-`test/preset-schema.ts` 现在同时断言：persona 必须 `prefix` 非空、**不得残留 `text:`**、**不得挂 `tool-cordis`**、关键工具行齐全、无制表符缩进、`cohub-standard` 不得复活。
+```yaml
+- insert:
+    - id: tool-cordis
+      name: '@deepseek-ai/dsh-tool-cordis'
+```
+
+这样**任何 preset 的会话**（含 `cohub-cordis`）都能用 `cordis_define` / `cordis_run` / `cordis_mount` / `cordis_inspect_*`，且全进程只注册一次 inspect provider，不会撞名。
+
+> **仍有边界**：官方「创造模式」preset 自带这一行，使用它的会话仍会自己再挂一次而报同样的错。所以要用创造能力请用 **`cohub-cordis`**；也**不要**在自己的 profile patch 里再 insert 同 id（会变成挂两次）。
+>
+> 需要回退时：把 `dsh-cohub` 从 profile `package.json` 的 `dsh.profile.bundles` 移除即可（host 行随之消失）。
+
+`test/preset-schema.ts` 现在同时断言：persona 必须 `prefix` 非空、**不得残留 `text:`**、**preset 不得挂 `tool-cordis`**（该能力改由 host 层提供）、关键工具行齐全、无制表符缩进、`cohub-standard` 不得复活。
 
 > 升级注意：安装台账按「用户是否改过」逐文件保护。若某个 preset 文件**既被用户改过、又需要跟随上游改名**，台账会判为用户改动而跳过自动更新 —— 此时需手动同步（或删除该 preset 目录让插件重新安装）。本次就是这种情况，已在该机器上手动修正。
 
