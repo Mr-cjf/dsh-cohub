@@ -268,26 +268,11 @@
     fetch: true
     searchTimeoutMs: 60000
 
-# ── self-modification：由官方「创造模式」提供，本 preset 不含 ──────────────────
-
-# 这里【刻意不挂】tool-cordis（@deepseek-ai/dsh-tool-cordis），它全进程只能挂一次。
-#
-# 原因：该插件挂载时会把一组 Host 级 inspect provider（Service / Event / Builtin / Tool）
-# 注册进进程单例注册表（dsh-cordis-host-runner 的 CordisInspectRegistryService），而
-# registry.register() 见到同名 id 直接抛错：
-#   Error: Host Cordis inspect provider "Service" is already registered
-# 官方 `cordis`（创造模式）preset **自带这一行**，而它是部署自带的 preset（不能改，
-# 升级会覆盖），且一个 preset 的 standing mount 由 DSH 共享并常驻。所以这里的任何
-# 第二份挂载——本 preset 自己挂，或在 host 组合里顶层 insert——都会让创造模式的
-# standing mount 失败。agent 创建就发生在 preset 的 compose（setup 里 ensureStanding）
-# 阶段，失败会**回滚 agent 创建**，表现为每次对话都报：
-#   client api: session/prompt failed: Failed to fetch (gateway/internal)
-# v0.4.9 曾用「host 层顶层 insert」绕这一点（误以为创造模式会因此不再自己挂），
-# 结果正是上述故障：创造模式会话几乎无法对话，host 还以 ~10 次/秒重试失败的挂载，
-# 日志写满 10MB/分钟。该做法已在 v0.4.10 撤销。
-#
-# 需要 cordis_define / cordis_run / cordis_mount / cordis_inspect_* 时，
-# 请直接使用官方**创造模式**会话。本 preset 保留 present 与组合创作技能。
+# ── co-cordis 运行时工具（co_inspect_list / co_define / co_run 等） ────────
+# 提供 7 个 co_* 工具，等价于官方 tool-cordis 的 cordis_*，但**不调用 register()**，
+# 全进程零冲突，可与官方创造模式共存。
+- id: co-cordis-plugin
+  name: 'dsh-cohub/co-cordis-plugin'
 
 # The composition-authoring skill travels with this preset rather than living
 # in the user's skill root: it documents THIS deployment's two planes, and a

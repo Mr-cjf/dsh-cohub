@@ -17,7 +17,7 @@ import { COHUB_SKILLS } from "./skills";
 import { createCouncilTool } from "./council";
 import { createDelegateTool } from "./delegate";
 import { createDelegateBatchTool } from "./delegate_batch.ts";
-import { createCordisTools } from "./cordis-tools";
+
 import { DEFAULT_ERROR_CATEGORIES } from "./env-signatures";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 
@@ -116,7 +116,7 @@ const ScheduleConfig = z.object({
 }).default({});
 
 export const name = "cohub";
-export const inject = ["systemPrompt", "skills", "tools", "sessionProjections", "llm", "subagents", "cordisInspect", "dynamicCordisRunner"];
+export const inject = ["systemPrompt", "skills", "tools", "sessionProjections", "llm", "subagents"];
 
 export const Config = z.object({
   /** 多模型共识 councillors（M4：非空时注册 council_session 工具） */
@@ -269,14 +269,7 @@ export function apply(ctx, config) {
   //    约束改为在 presets/*/agent.cordis.yml persona 中声明，运行时代码直接读取 settings。
   //    renderScheduleParams 保留（空函数）以兼容外部引用。
 
-  // ④d Cordis 运行时工具（co_inspect_list / co_inspect_query / co_define / co_run 等）：
-  //    只消费 host 层的 cordisInspect 与 dynamicCordisRunner 服务，不调用 register()，
-  //    零冲突，可与官方 @deepseek-ai/dsh-tool-cordis 共存。
-  if (ctx.reflect?.get?.('dynamicCordisRunner', false)) {
-    for (const tool of createCordisTools(ctx)) {
-      ctx.tools.register(tool);
-    }
-  }
+  
 
   // ⑤ council_session 工具（M4）：配置了 councillors 时注册
   if ((config.councillors ?? []).length > 0) {

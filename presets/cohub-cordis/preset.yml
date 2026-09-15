@@ -1,3 +1,3 @@
-name: CoHub 标准增强（cohub-cordis）
-description: cohub 中文身份 + 委派纪律，叠加标准模式全部工具面与组合创作技能；delegate / delegate_batch 由 dsh-cohub 在 host plane 注入，可直接委派专职子代理。需要运行时自改（cordis_define / cordis_run / cordis_mount / cordis_inspect_*）时请用官方「创造模式」——两边同时挂 tool-cordis 会在 Host 进程级 inspect 注册表撞名。
+name: CoHub 调度者（带 Cordis）（cohub-cordis）
+description: co-orchestrator 主代理 + co_* 运行时工具（co_inspect_list / co_define / co_run 等），可直接委派 co-cordis 子代理修插件、试挂载、审核 harness 组合。纯调度纪律 + cordis 能力。需要无 cordis 的纯调度版本请用 co-orchestrator。co-cordis 子代理
 order: 5
