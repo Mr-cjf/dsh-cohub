@@ -220,6 +220,19 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 - **孤儿清理**：包内已不再发布的 preset（曾记录在台账中的）会在加载时从用户目录移除，避免选择器残留幽灵条目；只清理台账确认由本插件安装过的 id，**不碰用户自建目录**。
 - **移除 `cohub-standard`**：其工具面是 `cohub-cordis` 的真子集，详见下方说明。
 
+**v0.4.9 修复（preset 无法挂载 → 新会话无法创建）**：
+
+`@deepseek-ai/dsh-persona` 的配置 schema 是 **`prefix`（required）/ `suffix`**，而两个内置 preset 一直沿用旧字段 `text:`，会让整行挂载失败：
+
+```
+[preset-tree] Error: failed to apply loader entry persona (@deepseek-ai/dsh-persona):
+  invalid config: - $.prefix missing required value (at prefix)
+```
+
+persona 行挂了 → 该 preset 不可用 → **以它为默认 preset 时新会话直接建不出来**（日志在 `%APPDATA%\DSH Desktop\logs\host\dsh-*.log`）。v0.4.9 把两个 preset 的 persona 字段统一为 `prefix`，并加结构断言防回归。
+
+> 升级注意：安装台账按「用户是否改过」逐文件保护。若某个 preset 文件**既被用户改过、又需要跟随上游改名**，台账会判为用户改动而跳过自动更新 —— 此时需手动同步（或删除该 preset 目录让插件重新安装）。本次就是这种情况，已在该机器上手动修正。
+
 ### 关于 `cohub-standard`（v0.4.7 移除）
 
 原先的 `cohub-standard`（标准模式 + cohub 身份）其 29 行工具面是 `cohub-cordis` 的**真子集**——只少了 `tool-cordis`、`present`、`command-goal`，而两者的 delegate 能力完全相同。因此 v0.4.7 删除该 preset，统一指向 **cohub-cordis**（标准模式全部能力 + 自改运行时）。
@@ -257,7 +270,7 @@ node test/schedule-p3.ts   # P3-3 N3 调度参数（24 用例）
 node test/env-sig-p3.ts    # P3-2 N1 环境契约持久化（50 用例）
 ```
 
-基线说明：`unit` 20 + `delegate-p1` 41 + `stall-p3` 35 + `schedule-p3` 24 + `env-sig-p3` 50 + `preset-copy` 13 + `preset-install` 31。除 `schedule-p3` 的 5 个既有失败（`cohub:schedule` 注入段断言，与委派链路无关）外全部 PASS（node >= 24）。无需 LLM，单测纯本地模拟。
+基线说明：`unit` 20 + `delegate-p1` 41 + `stall-p3` 35 + `schedule-p3` 24 + `env-sig-p3` 50 + `preset-copy` 13 + `preset-install` 35 + `preset-schema` 26。除 `schedule-p3` 的 5 个既有失败（`cohub:schedule` 注入段断言，与委派链路无关）外全部 PASS（node >= 24）。无需 LLM，单测纯本地模拟。
 
 ## 目录
 

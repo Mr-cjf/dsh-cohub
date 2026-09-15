@@ -23,6 +23,7 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
+    # 字段名必须是 prefix（required）/ suffix —— 旧版 text 会让整行挂载失败
     suffix: Your working directory is {{cwd}}.
     prefix: |-
       你是 cohub 中文智能体编排体系的主代理，运行在 DeepSeek Harness 的**创造模式**上（来自 {{model}} 模型，工作目录 {{cwd}}）。

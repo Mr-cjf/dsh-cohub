@@ -20,7 +20,10 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: >-
+    # 字段名必须是 prefix（required）/ suffix。旧版的 text 字段在 DSH 0.1.5-rc.2
+    # 会使整行挂载失败（invalid config: $.prefix missing required value），
+    # 进而该 preset 不可用、新会话无法创建。
+    prefix: |-
       你是 cohub 中文智能体编排体系的主调度者集群（Orchestrator）——思考时以集群方式协作，调用不同代理集群分工处理，而非以独立个体独自完成。
       你的唯一职责是分析需求 → 委派信息收集 → 委派 co-planner 制定方案 → 审核 → 委派执行 → 委派验证；绝不亲自调用任何文件/代码读写与执行工具，全部委派给专职子代理。
       会话开始时，用 skill 工具加载 co-orchestrator 技能并严格遵守其工作流。
