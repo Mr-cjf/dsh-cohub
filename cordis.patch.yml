@@ -54,19 +54,26 @@
         #     useJobTracking: auto       # auto / on / off（auto = 有 job 能力则后台跟踪）
         #     adaptiveBatch: auto        # auto / off（auto = 提示词级按本会话已观测错误/超时收放批大小）
 
-# ── tool-cordis：host 层单次挂载 ─────────────────────────────────────────────
-# @deepseek-ai/dsh-tool-cordis 会把 Host 级 inspect provider（Service / Event /
-# Builtin / Tool）注册进**进程单例**注册表，而 dsh-cordis-host-runner 的
+# ── tool-cordis：本文件【刻意不挂】────────────────────────────────────────────
+# @deepseek-ai/dsh-tool-cordis 会把一组 Host 级 inspect provider（Service /
+# Event / Builtin / Tool）注册进**进程单例**注册表；dsh-cordis-host-runner 的
 # CordisInspectRegistryService.register() 见到同名 id 直接抛错：
 #   Error: Host Cordis inspect provider "Service" is already registered
 #
-# 因此它全进程只能挂一次。官方「创造模式」(cordis preset) 自带这一行，若某个
-# preset 也挂它，两边同进程挂载就会撞名 → `failed to apply loader entry tool-cordis`
-# → 整个 preset 树挂载失败 → 新会话无法创建（v0.4.9 实际故障）。
+# 官方「创造模式」（dsh-agent-presets 的 `cordis` preset）**自带这一行**，它是
+# 部署自带的 preset，不能改（升级会覆盖），而一个 preset 的 standing mount 又由
+# DSH 共享并常驻（dsh-agent-presets 的 ensureStanding）。因此任何第二份挂载 ——
+# 不管在别的 preset 里，还是这里的 host 层顶层 insert —— 都会让创造模式的
+# standing mount 失败：
+#   [preset-tree] Error: failed to apply loader entry tool-cordis (...)
+# 而 agent 创建就发生在 preset 的 compose 阶段（setup 里 ensureStanding），失败
+# 会回滚 agent 创建，表现为每次对话都报：
+#   client api: session/prompt failed: Failed to fetch (gateway/internal)
 #
-# 这里用顶层 insert（无 id → 追加到 host 组合）挂一次，让**任何 preset 的会话**
-# 都能使用 cordis_define / cordis_run / cordis_mount / cordis_inspect_*。
-# 注意：使用官方「创造模式」的会话仍会自己挂一次而撞名；日常用 cohub-cordis 即可。
-- insert:
-    - id: tool-cordis
-      name: '@deepseek-ai/dsh-tool-cordis'
+# 这正是 v0.4.9 发布后的实际故障：官方创造模式（默认 preset 之一）会话几乎无法
+# 对话，host 同时以 ~10 次/秒重试失败的挂载，日志写到 10MB/分钟。v0.4.10 撤销了
+# 这里的 insert —— 全进程只由官方创造模式挂它。
+#
+# cohub-cordis 需要 cordis_define / cordis_run / cordis_mount / cordis_inspect_*
+# 时，直接用官方**创造模式**会话（见 README「cohub-cordis agent preset」一节）。
+# 本文件其余部分只挂 cohub 插件行，不受影响。

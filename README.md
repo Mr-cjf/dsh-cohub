@@ -239,7 +239,7 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
   Host Cordis inspect provider "Service" is already registered
 ```
 
-**v0.4.9 起：`tool-cordis` 改由 host 层单次挂载，`cohub-cordis` 不再自己挂。** `dsh-cohub` 自带的 `cordis.patch.yml`（bundle 层）用顶层 `insert`（无 id → 追加到 host 组合）挂一次：
+**v0.4.9 曾把它改由 host 层单次挂载，v0.4.10 已撤销 —— 那是个更糟的修复。** v0.4.9 在 `dsh-cohub` 自带的 `cordis.patch.yml`（bundle 层）里用顶层 `insert`（无 id → 追加到 host 组合）挂了一次：
 
 ```yaml
 - insert:
@@ -247,13 +247,20 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
       name: '@deepseek-ai/dsh-tool-cordis'
 ```
 
-这样**任何 preset 的会话**（含 `cohub-cordis`）都能用 `cordis_define` / `cordis_run` / `cordis_mount` / `cordis_inspect_*`，且全进程只注册一次 inspect provider，不会撞名。
+它的假设是"host 层挂一次，创造模式就不必自己挂了"。但官方 `cordis` preset 是**部署自带、不可修改**的（升级会覆盖），它**仍然会自己挂那一行**，于是 host 层那份变成了抢占者：
 
-> **仍有边界**：官方「创造模式」preset 自带这一行，使用它的会话仍会自己再挂一次而报同样的错。所以要用创造能力请用 **`cohub-cordis`**；也**不要**在自己的 profile patch 里再 insert 同 id（会变成挂两次）。
+- 创造模式的 standing mount 失败 → agent 创建在 preset 的 compose 阶段被**回滚** → **每次对话都报 `client api: session/prompt failed: Failed to fetch (gateway/internal)`**；
+- host 同时以 ~10 次/秒重试失败的挂载，日志写到 **10MB/分钟**（一天 200MB+）。
+
+所以 v0.4.10 起：**`tool-cordis` 全进程只由官方「创造模式」挂**。`dsh-cohub` 的 bundle patch 不再插入该行，`cohub-cordis` 也不挂它，而 cohub 插件行照常挂载。
+
+> **`cohub-cordis` 因此不含 `cordis_*` 工具**（`cordis_define` / `cordis_run` / `cordis_mount` / `cordis_inspect_*`）。需要 Cordis 自指能力时，请用官方**创造模式**会话；本 preset 用于"标准能力 + cohub 委派纪律"的日常开发。
 >
-> 需要回退时：把 `dsh-cohub` 从 profile `package.json` 的 `dsh.profile.bundles` 移除即可（host 行随之消失）。
+> 也**不要**在 profile 的 `cordis.patch.yml` 里 insert 同 id —— 那会重新制造同一个故障。
+>
+> 需要回退时：把 `dsh-cohub` 从 profile `package.json` 的 `dsh.profile.bundles` 移除即可。
 
-`test/preset-schema.ts` 现在同时断言：persona 必须 `prefix` 非空、**不得残留 `text:`**、**preset 不得挂 `tool-cordis`**（该能力改由 host 层提供）、关键工具行齐全、无制表符缩进、`cohub-standard` 不得复活。
+`test/preset-schema.ts` 现在同时断言：persona 必须 `prefix` 非空、**不得残留 `text:`**、**preset 不得挂 `tool-cordis`**、关键工具行齐全、无制表符缩进、`cohub-standard` 不得复活。
 
 > 升级注意：安装台账按「用户是否改过」逐文件保护。若某个 preset 文件**既被用户改过、又需要跟随上游改名**，台账会判为用户改动而跳过自动更新 —— 此时需手动同步（或删除该 preset 目录让插件重新安装）。本次就是这种情况，已在该机器上手动修正。
 
@@ -263,11 +270,11 @@ cp presets/co-orchestrator/* ~/.dsh/.agent-presets/co-orchestrator/
 
 对已安装的老用户：插件加载时会读取安装台账，自动移除"曾由本插件安装、但已不再随包发布"的目录，所以重启后选择器里不会再出现它。若你**手动改造过** `~/.dsh/.agent-presets/cohub-standard/`，或该目录早于台账机制存在，它不会被自动清理——按需手动删除即可。
 
-## cohub-cordis agent preset（Phase 5，v0.4.7 新增；v0.4.9 移除 tool-cordis）
+## cohub-cordis agent preset（Phase 5，v0.4.7 新增；v0.4.10 起不含 tool-cordis）
 
 `presets/cohub-cordis/` 是 **DSH 官方「创造模式」（`cordis` preset）的骨架 + cohub 中文身份与委派指引**：标准模式的全部工具面、`present` 产物交付、组合创作技能，加上直接可用的 cohub `delegate` / `delegate_batch`。
 
-**⚠️ 它不含运行时自改能力（`cordis_*` 工具）**：`tool-cordis` 在 Host 进程级 inspect 注册表里按 id 占位，与官方创造模式**同进程必然撞名**（v0.4.9 的修复二，见上）。要读写 harness 组合、做 `cordis_mount` 插件实验、动态定义/运行插件，请用官方**创造模式**；本 preset 用于"标准能力 + cohub 委派纪律"的日常开发。
+**⚠️ 它不含运行时自改能力（`cordis_*` 工具）**：`tool-cordis` 在 Host 进程级 inspect 注册表里按 id 占位，全进程只能挂一次，而官方创造模式自带这一行（v0.4.10 撤销了 v0.4.9 的 host 层方案，原因见上）。要读写 harness 组合、做 `cordis_mount` 插件实验、动态定义/运行插件，请用官方**创造模式**；本 preset 用于"标准能力 + cohub 委派纪律"的日常开发。
 
 **两者定位**：
 
