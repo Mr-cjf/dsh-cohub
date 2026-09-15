@@ -128,7 +128,7 @@ export function createDelegateBatchTool(
             contractText,
             userPrompt: task.prompt,
           });
-          const agentOptions = buildAgentOptions(route, ctx);
+          const agentOptions = await buildAgentOptions(route, ctx);
 
           // 每个 task 独立的 AbortController
           const ac = new AbortController();

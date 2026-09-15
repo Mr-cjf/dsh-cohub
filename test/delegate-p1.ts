@@ -7,10 +7,25 @@ import { createDelegateTool } from "../src/delegate.ts";
 /** delegate 注入的特有标记：技能内容里 P0 已有「## 执行器环境契约」段落，故用带围栏的「--- … ---」区分 */
 const DELEGATE_CONTRACT_MARKER = "--- 执行器环境契约（通用原则 + 探测式自适应） ---";
 
-/** fake ctx：只提供 delegate 用到的 subagents.start / llm.listProviders */
-function makeCtx(startImpl: (req: any) => any, providers: any[] = []) {
+/** fake ctx：只提供 delegate 用到的 subagents.start / llm.listProviders / llm.listModels */
+function makeCtx(
+  startImpl: (req: any) => any,
+  providers: any[] = [],
+  modelsByProvider?: Record<string, any[] | Error>,
+) {
   return {
-    llm: { listProviders: () => providers },
+    llm: {
+      listProviders: () => providers,
+      async listModels(provider: string) {
+        if (modelsByProvider === undefined) throw new Error("listModels 未在本次测试中提供");
+        if (!Object.prototype.hasOwnProperty.call(modelsByProvider, provider)) {
+          throw new Error('provider "' + provider + '" not owned');
+        }
+        const models = modelsByProvider[provider];
+        if (models instanceof Error) throw models;
+        return models;
+      },
+    },
     subagents: {
       async start(_transport: string, req: any) {
         return startImpl(req);
@@ -162,6 +177,58 @@ function check(name: string, cond: boolean) {
   ]);
   await tool.execute({ skill: "co-fixer", prompt: "任务" }, makeExec());
   check("provider 不可用 → 不传 agentOptions（继承父模型）", captured?.agentOptions === undefined);
+}
+
+// ---- 用例 8：只配 provider 未配 model → 回退为该 provider 的首个目录模型（P4-1 核心） ----
+{
+  console.log("===== 用例 8：未配 model 回退 provider 默认模型 =====");
+  let captured: any = null;
+  const start = (req: any) => {
+    captured = { agentOptions: req.agentOptions };
+    return { id: "ok", result: Promise.resolve({ output: [{ type: "text", text: "OK" }], stopReason: "completed" }), dispose() {} };
+  };
+  // 模拟真实故障场景：route 只有 provider，provider 目录里没有父会话模型 deepseek-flash
+  const ctx = makeCtx(start, [{ id: "tokenproto" }], {
+    tokenproto: [
+      { id: "deepseek-v4-flash", name: "deepseek-v4-flash" },
+      { id: "deepseek-v4-pro", name: "deepseek-v4-pro" },
+    ],
+  });
+  const tool = createDelegateTool(ctx, () => [{ name: "co-explorer", provider: "tokenproto" }]);
+  await tool.execute({ skill: "co-explorer", prompt: "任务" }, makeExec());
+  check("agentOptions.provider = tokenproto", captured?.agentOptions?.provider === "tokenproto");
+  check("agentOptions.model 回退为首个目录模型", captured?.agentOptions?.model === "deepseek-v4-flash");
+  check("不再把 model 留空（避免继承父模型 deepseek-flash）", captured?.agentOptions?.model !== undefined);
+}
+
+// ---- 用例 9：未配 model 且 provider 无模型目录 → 降级为不传 model（不抛错） ----
+{
+  console.log("===== 用例 9：无法解析目录时降级 =====");
+  let captured: any = null;
+  const start = (req: any) => {
+    captured = { agentOptions: req.agentOptions };
+    return { id: "ok", result: Promise.resolve({ output: [{ type: "text", text: "OK" }], stopReason: "completed" }), dispose() {} };
+  };
+  const ctx = makeCtx(start, [{ id: "ghost" }], { ghost: new Error("listModels boom") });
+  const tool = createDelegateTool(ctx, () => [{ name: "co-fixer", provider: "ghost" }]);
+  const out = await tool.execute({ skill: "co-fixer", prompt: "任务" }, makeExec());
+  check("listModels 抛错时委派仍成功", out === "OK");
+  check("降级为不传 model（provider 仍覆盖）", captured?.agentOptions?.provider === "ghost" && captured?.agentOptions?.model === undefined);
+}
+
+// ---- 用例 10：空目录同样降级，不影响 provider/maxTokens 覆盖 ----
+{
+  console.log("===== 用例 10：空目录 + maxTokens 保留 =====");
+  let captured: any = null;
+  const start = (req: any) => {
+    captured = { agentOptions: req.agentOptions };
+    return { id: "ok", result: Promise.resolve({ output: [{ type: "text", text: "OK" }], stopReason: "completed" }), dispose() {} };
+  };
+  const ctx = makeCtx(start, [{ id: "empty-provider" }], { "empty-provider": [] });
+  const tool = createDelegateTool(ctx, () => [{ name: "co-fixer", provider: "empty-provider", maxTokens: 1234 }]);
+  await tool.execute({ skill: "co-fixer", prompt: "任务" }, makeExec());
+  check("空目录 → 不传 model", captured?.agentOptions?.model === undefined);
+  check("maxTokens 仍被保留", captured?.agentOptions?.maxTokens === 1234);
 }
 
 console.log("");

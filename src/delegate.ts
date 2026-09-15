@@ -297,22 +297,60 @@ export function resolveSkillAndRoute(
 /**
  * 根据路由配置构造 agentOptions：仅当 route 有 provider 且该 provider 在可用集合中才覆盖；
  * provider 不可用或未配置则返回 undefined（继承父/会话模型）。
+ *
+ * 模型回退（P4-1）：route 只配了 provider、没配 model 时**不能**只交出 provider ——
+ * 子代理会回落到父会话的模型名，而该模型名往往不属于这个 provider，请求在发出前就会以
+ * `UNKNOWN_MODEL` 失败（DSH 实测：provider: tokenproto + 继承父模型 deepseek-flash → 秒失败）。
+ * 这里改为向该 provider 查询模型目录并取第一个（适配器偏好顺序的第一项）作为回退模型，
+ * 使「留空则继承」退化为「用该 provider 自己的默认模型」这一安全语义。
+ * 查询失败或无可用模型时保持原样（不传 model），维持旧行为，交由上层报错。
  */
-export function buildAgentOptions(
+export async function buildAgentOptions(
   route: SkillRouteConfig | undefined,
   ctx: any,
-): Record<string, unknown> | undefined {
-  if (route?.provider) {
-    const available = new Set(ctx.llm.listProviders().map(p => p.id));
-    if (available.has(route.provider)) {
-      return {
-        provider: route.provider,
-        ...(route.model ? { model: route.model } : {}),
-        ...(route.maxTokens ? { maxTokens: route.maxTokens } : {}),
-      };
+): Promise<Record<string, unknown> | undefined> {
+  if (!route?.provider) return undefined;
+  const available = new Set(ctx.llm.listProviders().map((p: any) => p.id));
+  if (!available.has(route.provider)) return undefined;
+
+  const options: Record<string, unknown> = { provider: route.provider };
+  if (route.model) {
+    options.model = route.model;
+  } else {
+    const fallback = await resolveProviderFallbackModel(route.provider, ctx);
+    if (fallback) {
+      options.model = fallback;
+      ctx.logger?.info?.(
+        '[cohub route] ' + route.name + ' 未配置 model，回退为 provider "'
+        + route.provider + '" 的首个模型 "' + fallback + '"',
+      );
+    } else {
+      ctx.logger?.warn?.(
+        '[cohub route] ' + route.name + ' 未配置 model，且无法解析 provider "'
+        + route.provider + '" 的可用模型；将继承父会话模型（可能因模型不属于该 provider 而失败）',
+      );
     }
   }
-  return undefined;
+  if (route.maxTokens) options.maxTokens = route.maxTokens;
+  return options;
+}
+
+/**
+ * 解析某个 provider 模型目录中的第一个模型 id。
+ * 只读查询；任何失败（未实现 listModels / 目录为空 / 抛错）都返回 undefined，
+ * 使调用方维持既有行为，而不是让整次委派失败。
+ */
+async function resolveProviderFallbackModel(provider: string, ctx: any): Promise<string | undefined> {
+  try {
+    const listModels = ctx?.llm?.listModels;
+    if (typeof listModels !== 'function') return undefined;
+    const models = await listModels.call(ctx.llm, provider);
+    if (!Array.isArray(models)) return undefined;
+    const first = models.find((m: any) => m && typeof m.id === 'string' && m.id);
+    return first ? first.id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -466,8 +504,8 @@ export function createDelegateTool(ctx: any, getRoutes: SkillRouteSource, config
         ctx.logger?.warn?.('delegate: skill "' + args.skill + '" 缺少 brief，回退完整 content');
       }
 
-      // ④ 构造 agentOptions（共享函数）
-      const agentOptions = buildAgentOptions(route, ctx);
+      // ④ 构造 agentOptions（共享函数；provider 未配 model 时解析该 provider 的默认模型）
+      const agentOptions = await buildAgentOptions(route, ctx);
 
       // ⑤ 执行器环境契约注入（共享函数）
       const contractResult = resolveContractText(

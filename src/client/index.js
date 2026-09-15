@@ -717,12 +717,16 @@ window.__ModuleLoader__.load({
             React.createElement("option", { value: "" }, t("loading"))
           );
         } else if (models.length > 0) {
+          // 未保存 model 时插入一个 value="" 的占位项。否则 <select value=""> 会被浏览器
+          // 渲染成列表第一项，让人误以为「已经选好了模型」，而实际保存值仍是空 —— 服务端随后
+          // 只能继承父会话模型并可能以 UNKNOWN_MODEL 失败。
+          var modelSelectOptions = [React.createElement("option", { key: "__inherit", value: "" }, t("modelPlaceholder"))].concat(modelOptions);
           modelControl = React.createElement("select", {
             className: "cohub-select",
-            value: row.model,
+            value: row.model || "",
             disabled: !writable,
             onChange: function (event) { update(skill.name, "model", event.target.value); }
-          }, modelOptions);
+          }, modelSelectOptions);
         } else {
           modelControl = React.createElement("input", {
             className: "cohub-input",
