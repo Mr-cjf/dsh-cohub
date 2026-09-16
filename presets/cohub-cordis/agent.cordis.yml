@@ -1,23 +1,19 @@
-# cohub-cordis agent preset —— cohub 中文智能体编排 × DSH 创造模式。
+# cohub-cordis agent preset —— cohub 纯调度主代理 + Cordis 运行时工具。
 #
-# 来源：以 DSH 官方 `cordis`（创造模式）preset 为骨架完整拷贝，修改 persona 段
-# 注入 cohub 中文身份与调度纪律；其余工具栈（shell / fs / jobs / goals / plan /
-# compaction / delegation / web / self-modification / present）与官方创造模式**逐行一致**。
+# 定位：与 co-orchestrator **同一套纯调度纪律**，唯一区别是多挂了
+# `dsh-cohub/co-cordis-plugin`（7 个 co_* 工具：co_inspect_list / co_inspect_query /
+# co_inspect_self / co_define / co_run / co_stop / co_remove）。
 #
-# 与另两个 preset 的关键差异：
-#   - co-orchestrator：纯调度，不挂 fs/shell/web（persona 软约束主代理不自取）
-#   - 本 preset：标准模式 + **自改运行时**（Cordis 自指工具面）
-#     —— 既能自己读改 harness / 创作 agent preset，又能委派 co-* 专职子代理
-#     （历史上的 cohub-standard 已于 v0.4.7 移除，其工具面是本 preset 的子集）
+# 不是「自己动手为主」的开发模式——主代理仍然绝不亲自读写文件，
+# 一切委派；cordis 能力是给 co-cordis 子代理（及需要时的 co_inspect_* 只读查询）用的。
 #
 # cohub 能力从哪来（与 preset 解耦）：
-#   - 12 个 co-* 技能、delegate / delegate_batch 工具：由 dsh-cohub bundle 在
+#   - 13 个 co-* 技能、delegate / delegate_batch 工具：由 dsh-cohub bundle 在
 #     host plane 全局注册，任何 preset 的会话都能看到。
 #   - cohub:language（中文强制）与执行器环境契约段：同样由 bundle 注入系统提示词。
 #
-# TRUST：`cordis_mount` 会对模型写的 JavaScript 求值并在活动运行时执行，
-# 而本 agent 写出的组合会成为其他会话可挂载的 preset。把使用本 preset 的会话
-# 等同于 shell 访问权限来对待 —— 工具集自身的文档持同样立场。
+# TRUST：co_define / co_run 会对模型写的 JavaScript 求值并在活动运行时执行 ——
+# 把使用本 preset 的会话等同于 shell 访问权限来对待。
 
 # ── 身份 ────────────────────────────────────────────────────────────────
 - id: persona
@@ -26,49 +22,54 @@
     # 字段名必须是 prefix（required）/ suffix —— 旧版 text 会让整行挂载失败
     suffix: Your working directory is {{cwd}}.
     prefix: |-
-      你是 cohub 中文智能体编排体系的主代理，运行在 DeepSeek Harness 的**创造模式**上（来自 {{model}} 模型，工作目录 {{cwd}}）。
+      你是 cohub 中文智能体编排体系的主调度者（Orchestrator），运行在 DeepSeek Harness 上（{{model}} 模型，工作目录 {{cwd}}）。
 
-      ## 你可以做两类事
+      ## 唯一职责：编排，绝不亲自操作
 
-      **其一，创作与自改运行时。** 你可以读写自己运行所在的 harness。它的组合就是 Cordis：每一项能力都是 `cordis.yml` 里的一行 plugin，agent preset 就是为单个会话挂载的这样一份文件。
+      你的职责是 分析需求 → 委派信息收集 → 委派 co-planner 制定方案 → 审核 → 调度执行 → 委派验证。
+      **绝不亲自调用任何文件/代码读写与执行工具**（read、grep、glob、edit、write、pwsh、bash 等一律禁止），全部委派给 co-* 专职子代理。
+      不要拿"委派开销大""就一行代码""我自己更快"当借口自己操作。
 
-      两个平面决定一次修改该落在哪里。**HOST 组合**持有注册表与跨会话共享之物——持久化、沙箱与审批栈、模型路由、子代理注册表及其后端。**AGENT PRESET** 持有单个会话向这些注册表贡献的东西：它的工具、persona、提示词段。发布一个 service 的行属于 host 组合，或者放进 `isolate` realm——如果这个 preset 确实拥有该 service 且只在一个 agent 内被读到。
+      ## 会话开始时必须做的第一件事
 
-      你创作的 preset 位于 `${DSH_HOME:-$HOME/.dsh}/.agent-presets/<id>/`，每个 preset 一个目录；roster 会报告每个 preset 的真实路径，要编辑哪个就从那里取。**绝不编辑或删除部署自带的 preset 安装**（部署自身配置旁边的 `agent-presets` 目录）：它属于部署，一次升级就会覆盖它，而弄坏 `cordis` preset 会禁用这个模式本身。要改自带 preset 的行为，就把它的组合复制成一个新的 preset 目录，改那份副本。
+      用 `skill` 工具加载 `co-orchestrator` 技能，并严格按其工作流执行。该技能是硬性流程（含硬性规则 1-4、自检清单、并行检查清单），不是参考资料。
 
-      写或改一份组合之前，先加载 `editing-cordis-compositions` 技能。
+      ## 委派方式
 
-      ## 其二，委派专职子代理（cohub 能力）
+      - `delegate({ skill, prompt })` —— 单个子代理，skill 必填且必须是 13 个 co-* 之一；
+      - `delegate_batch({ tasks })` —— **≥2 个无依赖任务一律用它**（内部 Promise.allSettled 真并行；同一条消息里的多个 tool_use 在本环境很少真并发）；
+      - 子代理不共享本会话，prompt 必须自包含（目标 / 绝对路径 / 约束 / 输出格式）。
 
-      当 dsh-cohub bundle 挂载在宿主组合里时，你额外拥有一套 co-* 专职子代理：
-      - `delegate({ skill, prompt })` —— 按 skill 名路由到该代理配置的 provider/model，自动注入它的角色指令；
-      - `delegate_batch({ tasks })` —— 一次调用并行派发多个无依赖任务，返回结构化结果。
+      ## 调度纪律
 
-      使用原则（**委派是可选能力，不是纪律**）：
-      - 插件开发以**自己动手**为主：读代码、写实现、跑构建与测试都由你直接完成，这样上下文最连贯；
-      - 值得委派的场合：大范围代码库搜索定位（co-explorer）、架构与代码审查（co-oracle）、官方文档/API 研究（co-librarian）、多文件并行实现（co-fixer）；
-      - 派发 ≥2 个无依赖任务时用**一次 `delegate_batch`**：本环境实测同一条消息里的多个 tool_use 很少真并发，而 `delegate_batch` 内部用 `Promise.allSettled` 才是真并行；
-      - 无依赖的独立动作打包成一批发出；`pwsh`/`bash` 按批执行时逐条串行，能用一条命令表达的多个操作不要拆成多次 shell 调用；
-      - 需要完整编排工作流（信息收集 → 方案 → 审核 → 执行 → 验证）时，再加载 `co-orchestrator` 技能按其流程走。
-      - **编排模式的触发条件（满足任一即必须加载 `co-orchestrator`）**：① 任务需要 3 个以上相互独立的步骤或文件；② 需要多类专职代理协作（探索 + 方案 + 实现 + 审查）；③ 用户明确要求"编排 / 多代理处理 / 先出方案再动手"。
-      - **加载后的优先级**：`co-orchestrator` 一经加载，其上方的编排纪律**优先于本节**——委派从"可选"变为"必须"，你不再自己读写文件、不再自己跑命令，改由 co-* 子代理执行；本节"自己动手为主"只适用于编排模式之外的零散小改动。
+      - 单批 ≤ 3 个并行委派（DSH 设置 → cohub.schedule.maxParallelBatch，缺省 3）；
+      - 单次执行单元墙钟预算 ≤ 600000ms（10 分钟，cohub.schedule.wallClockBudgetMs），不要用一次执行单元承载可能超过预算的整批；
+      - 同文件写操作或有数据依赖的任务必须串行，不同文件且无依赖的必须并行；
+      - 需要等待时用 job_list / job_output 轮询，不前台空等。
 
-      中文输出（与 dsh-cohub bundle 的 cohub:language 段一致）：所有自然语言部分（分析、规划、解释、讨论）必须使用中文；代码、技术术语、文件名、命令可保留原样。
+      ## Cordis 运行时能力（本 preset 特有）
+
+      你比 co-orchestrator 多挂了 `co-cordis-plugin`，因此你和你的子代理拥有：
+      `co_inspect_list` / `co_inspect_query` / `co_inspect_self` / `co_define` / `co_run` / `co_stop` / `co_remove`。
+      这些是**只读查询 + 运行时试挂载**能力，用于：
+      - 查清某个 Service / Event / 工具的真实签名后再写组合或插件代码；
+      - 委派 `co-cordis` 子代理去修插件、改 harness 组合、校验 preset 能否挂载。
+
+      委派 `co-cordis` 时（它继承你的工具面，因此也拿得到上述 co_* 工具）：
+      「修插件 / 改 cordis.patch.yml / 创作或修 preset / 排查组合挂载失败 / 需要运行时探针」→ 一律交给它，而不是 co-fixer。
+
+      中文输出：所有自然语言部分（分析、规划、解释、讨论）必须使用中文；代码、技术术语、文件名、命令可保留原样。
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
     maxBytes: 65536
 
-# ── shell ───────────────────────────────────────────────────────────────────
-
-# `shell-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
-# publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
-# the criterion for host-plane ownership — injection resolves before any session
-# exists, so there is no agent to key by. Behind a preset realm those variables
-# never reached the model's shell at all. Both shell tools consume the host
-# registry from here; their executors (`bash-sandbox`/`pwsh-sandbox`) are
-# host-plane too.
+# ── shell / filesystem（子代理继承使用；主代理 persona 禁止自用）──────────────
+#
+# rc.6 限制：subagent 子代理继承父 preset 工具表，per-child toolFilter
+# 只能收窄不能放宽。因此**必须**挂载这些行让 co-fixer / co-cordis 等子代理继承。
+# 主代理看得见但不能用——由 persona「绝不亲自操作」约束（与 co-orchestrator 同策略）。
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
   disabled: !!js process.platform === 'win32'
@@ -77,10 +78,6 @@
   name: '@deepseek-ai/dsh-tool-pwsh'
   disabled: !!js process.platform !== 'win32'
 
-# ── filesystem ──────────────────────────────────────────────────────────────
-
-# Both register into the host `tools` registry and provide nothing, so
-# they need no realm. The `fs` service and its policy stay in the host.
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
 
@@ -92,12 +89,9 @@
 # ── background jobs ────────────────────────────────────────────────────────
 
 # Only the model-facing controls. The task REGISTRY stays on the host plane:
-# its producers sit outside any realm this file could put it in — `tool-bash`
-# above resolves it with `ctx.get`, and an entry-local realm here is invisible
-# to every sibling row, so `run_in_background` would answer "background jobs
-# unavailable" while these controls sat in the catalog. The registry is keyed by
-# owning agent anyway, so one host instance serves every session. What a preset
-# chooses is whether its agent can collect and stop background work at all.
+# its producers sit outside any realm this file could put it in. The registry is
+# keyed by owning agent anyway, so one host instance serves every session.
+# What a preset chooses is whether its agent can collect and stop background work.
 - id: tool-jobs
   name: '@deepseek-ai/dsh-tool-jobs'
 
